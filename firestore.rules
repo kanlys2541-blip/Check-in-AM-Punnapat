@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ⚠️ เปลี่ยนเป็นอีเมลผู้ดูแลระบบหลัก (ต้องตรงกับ OWNER_EMAIL ใน firebase-config.js)
+    function ownerEmail() { return 'your-email@example.com'; }
+
+    function signedIn() { return request.auth != null; }
+    function isOwner() {
+      return signedIn() && request.auth.token.email != null
+        && request.auth.token.email.lower() == ownerEmail().lower();
+    }
+    function myUser() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin() {
+      return isOwner() || (signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myUser().data.get('role', 'staff') == 'admin');
+    }
+
+    // ---------- สาขา ----------
+    match /branches/{branchId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ---------- พนักงาน ----------
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, delete: if isAdmin();
+      // พนักงานแก้ได้เฉพาะ: ปิดสถานะ "ต้องเปลี่ยนรหัส" และผูกเครื่องครั้งแรก (เมื่อยังไม่มีเครื่อง)
+      allow update: if isAdmin() || (
+        signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'deviceId'])
+        && request.resource.data.get('mustChangePassword', false) == false
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['deviceId'])
+            || resource.data.get('deviceId', '') == '')
+      );
+    }
+
+    // ---------- คำขอเปลี่ยนเครื่อง ----------
+    match /deviceRequests/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['deviceId', 'ua', 'name', 'email', 'mobile', 'at'])
+        && request.resource.data.at == request.time;
+      allow delete: if isAdmin();
+    }
+
+    // ---------- บันทึกเข้า-ออกงาน ----------
+    match /checkins/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if signedIn() && validCheckin(request.resource.data);
+      allow update, delete: if isAdmin();   // พนักงานแก้/ลบย้อนหลังไม่ได้
+    }
+
+    function validCheckin(d) {
+      let u = myUser().data;
+      let b = get(/databases/$(database)/documents/branches/$(d.branchId)).data;
+      let r = b.get('radius', 200) + 50;   // เผื่อความคลาดเคลื่อน GPS 50 ม.
+      return d.uid == request.auth.uid
+        && d.ts == request.time                       // เวลาเซิร์ฟเวอร์เท่านั้น
+        && d.type in ['in', 'out']
+        && u.get('active', true) == true
+        && u.get('mustChangePassword', false) == false
+        && u.get('deviceId', '') != ''
+        && d.deviceId == u.deviceId                   // 1 เครื่อง 1 คน
+        && d.lat is number && d.lng is number
+        && b.lat is number && b.lng is number
+        && math.abs(d.lat - b.lat) * 111320 <= r      // อยู่ในพื้นที่สาขา
+        && math.abs(d.lng - b.lng) * 108000 <= r
+        && d.photo is string && d.photo.size() < 300000;
+    }
+  }
+}
