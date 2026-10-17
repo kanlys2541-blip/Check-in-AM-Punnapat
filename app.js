@@ -10,6 +10,7 @@ function screen(id) {
 function msg(id, text, kind = "err") { const el = $(id); el.textContent = text || ""; el.className = "msg " + kind; }
 
 const deviceId = getDeviceId();
+const MAX_DEVICES = 2;
 let me = null, profile = null, branches = [], type = "in";
 let pos = null, watchId = null, inRange = false, dist = null;
 let stream = null, gesture = null, photo = null, todayCode = "";
@@ -81,12 +82,19 @@ async function checkDevice() {
   const snap = await getDoc(doc(db, "users", me.uid));
   profile = snap.data();
   if (profile.active === false) return blocked("บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อหัวหน้า");
-  if (!profile.deviceId) {
+  // 1 คนผูกได้ 2 ที่บนมือถือเครื่องเดียว (เช่น Safari + ไอคอนหน้าจอโฮม)
+  const ids = Array.isArray(profile.deviceIds) && profile.deviceIds.length ? profile.deviceIds : (profile.deviceId ? [profile.deviceId] : []);
+  if (!ids.includes(deviceId)) {
     if (!isMobile()) return requestDevice("คอมพิวเตอร์ต้องได้รับอนุมัติจากหัวหน้าก่อนใช้งาน ระบบส่งคำขอให้หัวหน้าแล้ว");
-    await updateDoc(doc(db, "users", me.uid), { deviceId });
-    profile.deviceId = deviceId;
+    if (ids.length < MAX_DEVICES) {
+      const upd = { deviceIds: [...ids, deviceId] };
+      if (!profile.deviceId) upd.deviceId = deviceId;
+      await updateDoc(doc(db, "users", me.uid), upd);
+      Object.assign(profile, upd);
+      ids.push(deviceId);
+    }
   }
-  if (profile.deviceId !== deviceId) {
+  if (!ids.includes(deviceId)) {
     return requestDevice("เครื่องนี้ไม่ใช่เครื่องที่ลงทะเบียนไว้ (หรือมีการล้างข้อมูลเบราว์เซอร์) ระบบส่งคำขอเปลี่ยนเครื่องให้หัวหน้าแล้ว");
   }
   enterMain();
@@ -94,7 +102,7 @@ async function checkDevice() {
 async function requestDevice(text) {
   await setDoc(doc(db, "deviceRequests", me.uid), {
     deviceId, ua: navigator.userAgent.slice(0, 300), name: profile.name || "", email: me.email || "",
-    mobile: isMobile(), at: serverTimestamp()
+    mobile: isMobile(), zoneId: profile.zoneId || "", at: serverTimestamp()
   });
   $("devText").textContent = text;
   screen("scDevice");
@@ -257,7 +265,7 @@ $("btnSubmit").onclick = async () => {
     batch.set(doc(db, "checkinPhotos", ref.id), { uid: me.uid, ts: serverTimestamp(), photo });
     batch.set(ref, {
       uid: me.uid, name: profile.name || "", empId: profile.empId || "", position: profile.position || "",
-      branchId: b.id, branchName: b.name || "", type, shiftCode: todayCode || "",
+      branchId: b.id, branchName: b.name || "", zoneId: b.zoneId || "", zm: `${b.zoneId || ""}_${bkkDay().slice(0, 7)}`, type, shiftCode: todayCode || "",
       ts: serverTimestamp(), day: bkkDay(),
       lat: pos.latitude, lng: pos.longitude, accuracy: Math.round(pos.accuracy), distance: Math.round(dist),
       gesture: gesture.text, hasPhoto: true, offsite: off, note, deviceId, ua: navigator.userAgent.slice(0, 300)
