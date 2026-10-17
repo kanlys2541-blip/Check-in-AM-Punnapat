@@ -1,11 +1,25 @@
 import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN } from "./common.js";
-import { firebaseConfig, OWNER_EMAILS, DEFAULT_RADIUS } from "./firebase-config.js";
+import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS } from "./firebase-config.js";
 import * as CFG from "./firebase-config.js";
 const MULTI_ZONE = CFG.MULTI_ZONE !== false; // false = ใช้คนเดียว ไม่แบ่งเขต
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, startAfter, writeBatch, Timestamp, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+const SEED_BRANCHES = `5175, Bangkadi, , , 200
+5052, Pathumthani, , , 200
+5184, North Ratchapruek, , , 200
+5015, Fortune, , , 200
+5081, Lumlookka Klong2, , , 200
+5183, Tiwanon, , , 200
+5112, Pattanakarn Bangkok, , , 200
+5037, Rangsit, , , 200
+5104, Nakorn-In Bangkrauy, , , 200
+5027, Rattanathibet, , , 200
+5045, Bangyai, , , 200
+6401, Bangkok - Phong Phet (BKK1), , , 200
+5056, Baan Fah, , , 200
+5162, Bang Kruay Sai Noi, , , 200`;
 
 const SCREENS = ["scLoading", "scLogin", "scDenied", "scPanel"];
 const screen = (id) => { SCREENS.forEach((s) => $(s).classList.toggle("hidden", s !== id)); $("btnLogout").classList.toggle("hidden", id === "scLogin" || id === "scLoading"); };
@@ -30,9 +44,9 @@ onAuthStateChanged(auth, async (user) => {
   try {
     const ref = doc(db, "users", user.uid);
     let snap = await getDoc(ref);
-    const isOwner = OWNER_EMAILS.map((e) => e.toLowerCase()).includes((user.email || "").toLowerCase());
+    const isOwner = (user.email || "").toLowerCase() === OWNER_EMAIL.toLowerCase();
     if (!snap.exists() && isOwner) {
-      await setDoc(ref, { name: "ผู้ดูแลระบบ", email: user.email, empId: "", position: "RM", branchId: "", zoneId: "", role: "rm", active: true, mustChangePassword: false, deviceId: "", createdAt: serverTimestamp() });
+      await setDoc(ref, { name: "ผู้ดูแลระบบ", email: user.email, empId: "", position: "Area Mall Manager", branchId: "", zoneId: "", role: "rm", active: true, mustChangePassword: false, deviceId: "", createdAt: serverTimestamp() });
       snap = await getDoc(ref);
     }
     const p = snap.exists() ? snap.data() : {};
@@ -157,6 +171,7 @@ $("tBranches").addEventListener("click", async (e) => {
   }
   if (del && confirm(`ลบสาขา ${del}?`)) { await deleteDoc(doc(db, "branches", del)); loadBranches(); }
 });
+$("btnBSeed").onclick = () => { $("bBulk").value = SEED_BRANCHES; };
 $("btnBBulk").onclick = async () => {
   const lines = $("bBulk").value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return msg("bBulkMsg", "ยังไม่มีข้อมูล");
@@ -425,12 +440,10 @@ $("btnPurge").onclick = async () => {
       // AM: ลบเฉพาะรูปของเช็กอินในเขตตัวเอง
       const old = (await getDocs(query(collection(db, "checkins"), where("zoneId", "==", me.zoneId)))).docs
         .filter((d) => d.data().ts && d.data().ts.toMillis() < cutoff.toMillis() && d.data().hasPhoto !== false);
-      // Rules ต้อง get() รายการเช็กอินทุกรูป (จำกัด 20 ครั้ง/คำสั่ง) → ลบครั้งละ 8 รูป
-      const AM_CHUNK = 8;
-      for (let i = 0; i < old.length; i += AM_CHUNK) {
+      for (let i = 0; i < old.length; i += 400) {
         const batch = writeBatch(db);
-        old.slice(i, i + AM_CHUNK).forEach((d) => { batch.delete(doc(db, "checkinPhotos", d.id)); batch.update(d.ref, { hasPhoto: false }); });
-        await batch.commit(); total += Math.min(AM_CHUNK, old.length - i);
+        old.slice(i, i + 400).forEach((d) => { batch.delete(doc(db, "checkinPhotos", d.id)); batch.update(d.ref, { hasPhoto: false }); });
+        await batch.commit(); total += Math.min(400, old.length - i);
         msg("pMsg", `ลบแล้ว ${total} รูป...`, "ok");
       }
       msg("pMsg", `เสร็จแล้ว ลบรูปทั้งหมด ${total} รูป (เฉพาะเขต ${zName(me.zoneId)})`, "ok");

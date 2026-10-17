@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Check-In Admin</title>
+<title>AM Check-In Admin</title>
 <link rel="icon" href="icons/logo.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0B2E7A">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="bar"><div class="brand"><img src="icons/logo.svg" alt=""><span data-appname>Check-In</span> · <span id="whoami">หัวหน้า</span></div><button id="btnLogout" class="link hidden">ออกจากระบบ</button></header>
+<header class="bar"><div class="brand"><img src="icons/logo.svg" alt=""><span data-appname>AM Check-In</span> · <span id="whoami">หัวหน้า</span></div><button id="btnLogout" class="link hidden">ออกจากระบบ</button></header>
 <main class="wrap wide">
 
   <section id="scLoading" class="card center"><div class="spinner"></div><p class="muted">กำลังโหลด...</p></section>
@@ -128,7 +128,7 @@
       <div class="card">
         <h3>เพิ่มหลายคนพร้อมกัน</h3>
         <p class="muted">คัดลอกแถวจาก Excel มาวางได้เลย หรือพิมพ์คั่นด้วยจุลภาค <b>,</b> (ห้ามใช้จุด) 1 คนต่อ 1 บรรทัด: <b>ชื่อ-นามสกุล | รหัสพนักงาน | อีเมล | ตำแหน่ง | รหัสสาขา | เบอร์โทร | ชื่อเล่น</b> — ทุกคนใช้รหัสผ่านเริ่มต้นเดียวกันด้านล่าง (ถ้าอีเมลซ้ำกับที่มีอยู่ ระบบจะข้าม)</p>
-        <textarea id="uBulk" placeholder="สมชาย ใจดี, 40112233, somchai@lotuss.com, Mall Operation Manager, 5175, 081-234-5678, ชาย"></textarea>
+        <textarea id="uBulk" placeholder="สมชาย ใจดี, 40112233, somchai@gmail.com, Mall Operation Manager, 5175, 081-234-5678, ชาย"></textarea>
         <label>รหัสผ่านเริ่มต้น (ทุกคน)<input id="uBulkPw" placeholder="อย่างน้อย 6 ตัว"></label>
         <div class="row" style="max-width:220px"><button id="btnUBulk" class="btn primary">นำเข้า</button></div>
         <p class="msg" id="uBulkMsg"></p>
@@ -165,6 +165,7 @@
         <textarea id="bBulk"></textarea>
         <div class="row" style="max-width:420px">
           <button id="btnBBulk" class="btn primary">นำเข้า</button>
+          <button id="btnBSeed" class="btn">ใส่รายชื่อ 14 สาขาของผม</button>
         </div>
         <p class="msg" id="bBulkMsg"></p>
       </div>
@@ -180,7 +181,7 @@
         <h3>เพิ่ม/แก้ไขเขต</h3>
         <div class="grid">
           <label>รหัสเขต (ภาษาอังกฤษ/ตัวเลข)<input id="zId" placeholder="เช่น AM1"></label>
-          <label>ชื่อเขต<input id="zName" placeholder="เช่น AM East"></label>
+          <label>ชื่อเขต<input id="zName" placeholder="เช่น AM East – Punnapat"></label>
         </div>
         <div class="row" style="max-width:420px"><button id="btnZSave" class="btn primary">บันทึกเขต</button><button id="btnZClear" class="btn">ล้างฟอร์ม</button></div>
         <p class="muted">ขั้นตอน: 1) สร้างเขต → 2) แท็บสาขา: กำหนดเขตให้ทุกสาขา → 3) แท็บพนักงาน: สร้างบัญชี AM (Gmail) เลือกสิทธิ์ AM + เขต → 4) กด "อัปเดตเขตให้ข้อมูลเดิม" ด้านล่าง</p>
