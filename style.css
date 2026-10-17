@@ -74,3 +74,6 @@ td.wrap-txt{white-space:normal;min-width:160px}
 .photo-big{max-width:min(92vw,480px);max-height:80vh;border-radius:12px;display:block}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 @media (max-width:480px){ th,td{padding:7px 6px} }
+.chk{display:flex;gap:10px;align-items:center;color:var(--text);font-size:.95rem;margin-top:12px;cursor:pointer}
+.chk input{width:22px;height:22px;margin:0;flex:none}
+.tag.offsite{background:#f3e8ff;color:#6b21a8}

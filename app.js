@@ -167,17 +167,24 @@ function startGeo() {
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
   );
 }
+const isOff = () => $("mOff").checked;
+const noteText = () => $("mNote").value.trim();
 function updateLoc() {
-  const b = curBranch();
+  const b = curBranch(), off = isOff();
+  $("noteReq").textContent = off ? "(จำเป็น — ระบุสถานที่/เหตุผล อย่างน้อย 5 ตัวอักษร)" : "(ไม่บังคับ)";
+  $("noteReq").className = off ? "msg err" : "";
   if (!b) { inRange = false; setLoc("bad", "✗ ยังไม่ได้เลือกสาขา"); return refresh(); }
-  if (!pos) return;
+  if (!pos) return refresh();
   dist = haversine(pos.latitude, pos.longitude, b.lat, b.lng);
   const r = b.radius || 200, acc = Math.round(pos.accuracy);
   inRange = dist <= r;
-  if (inRange) setLoc("ok", `✓ อยู่ในพื้นที่สาขา (ห่าง ${Math.round(dist)} ม. · ความแม่นยำ ±${acc} ม.)`);
-  else setLoc("bad", `✗ อยู่นอกพื้นที่สาขา — ห่าง ${fmtDist(dist)} (กำหนด ${r} ม. · ±${acc} ม.)`);
+  if (off) setLoc("wait", `📍 นอกสถานที่ — ห่างสาขา ${fmtDist(dist)} (±${acc} ม.) · ระบบบันทึกพิกัดจริงให้หัวหน้าตรวจ`);
+  else if (inRange) setLoc("ok", `✓ อยู่ในพื้นที่สาขา (ห่าง ${Math.round(dist)} ม. · ความแม่นยำ ±${acc} ม.)`);
+  else setLoc("bad", `✗ อยู่นอกพื้นที่สาขา — ห่าง ${fmtDist(dist)} (กำหนด ${r} ม. · ±${acc} ม.) · ถ้าทำงานนอกสถานที่ ให้ติ๊กช่องด้านล่าง`);
   refresh();
 }
+$("mOff").addEventListener("change", updateLoc);
+$("mNote").addEventListener("input", refresh);
 
 /* ---------- กล้อง ---------- */
 async function openCam() {
@@ -234,11 +241,14 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && str
 function refresh() {
   const btn = $("btnSubmit");
   btn.textContent = "ยืนยัน" + (type === "in" ? "เข้างาน" : "ออกงาน");
-  btn.disabled = !(inRange && photo && pos);
+  const placeOk = isOff() ? noteText().length >= 5 : inRange;
+  btn.textContent += isOff() ? " (นอกสถานที่)" : "";
+  btn.disabled = !(placeOk && photo && pos);
 }
 $("btnSubmit").onclick = async () => {
   const b = curBranch();
-  if (!(inRange && photo && pos && b)) return;
+  const off = isOff(), note = noteText();
+  if (!(photo && pos && b && (off ? note.length >= 5 : inRange))) return;
   busy($("btnSubmit"), true, "กำลังบันทึก...");
   msg("mMsg", "");
   try {
@@ -250,12 +260,13 @@ $("btnSubmit").onclick = async () => {
       branchId: b.id, branchName: b.name || "", type, shiftCode: todayCode || "",
       ts: serverTimestamp(), day: bkkDay(),
       lat: pos.latitude, lng: pos.longitude, accuracy: Math.round(pos.accuracy), distance: Math.round(dist),
-      gesture: gesture.text, hasPhoto: true, deviceId, ua: navigator.userAgent.slice(0, 300)
+      gesture: gesture.text, hasPhoto: true, offsite: off, note, deviceId, ua: navigator.userAgent.slice(0, 300)
     });
     await batch.commit();
     const s = await getDoc(ref);
     const t = s.data().ts && s.data().ts.toDate();
-    $("doneText").innerHTML = `${type === "in" ? "เข้างาน" : "ออกงาน"} · ${esc(b.name)}<br>เวลา ${fmtTime(t)} น.`;
+    $("doneText").innerHTML = `${type === "in" ? "เข้างาน" : "ออกงาน"} · ${off ? "นอกสถานที่" : esc(b.name)}<br>เวลา ${fmtTime(t)} น.`;
+    $("mNote").value = ""; $("mOff").checked = false; updateLoc();
     $("done").classList.remove("hidden");
     resetPhoto();
     loadToday();
@@ -270,7 +281,7 @@ async function loadToday() {
     const rows = (await getDocs(q)).docs.map((d) => d.data())
       .sort((a, b) => (a.ts ? a.ts.toMillis() : 0) - (b.ts ? b.ts.toMillis() : 0));
     $("today").innerHTML = rows.length
-      ? rows.map((r) => `<li><span><span class="tag ${r.type}">${r.type === "in" ? "เข้างาน" : "ออกงาน"}</span> ${esc(r.branchName)}</span><b>${fmtTime(r.ts && r.ts.toDate())}</b></li>`).join("")
+      ? rows.map((r) => `<li><span><span class="tag ${r.type}">${r.type === "in" ? "เข้างาน" : "ออกงาน"}</span> ${r.offsite ? `<span class="tag offsite">นอกสถานที่</span>` : esc(r.branchName)}</span><b>${fmtTime(r.ts && r.ts.toDate())}</b></li>`).join("")
       : `<li class="muted">ยังไม่มีรายการ</li>`;
   } catch (e) { /* แสดงต่อได้แม้โหลดประวัติไม่สำเร็จ */ }
 }

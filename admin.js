@@ -324,21 +324,29 @@ function renderReport() {
     <div class="stat"><span class="muted">จำนวนคน</span><b>${people}</b></div>
     <div class="stat"><span class="muted">เข้างาน</span><b>${rows.filter((r) => r.type === "in").length}</b></div>
     <div class="stat"><span class="muted">ออกงาน</span><b>${rows.filter((r) => r.type === "out").length}</b></div>
-    <div class="stat"><span class="muted">ยังไม่ลงออกงาน (คน-วัน)</span><b>${noOut}</b></div>`;
+    <div class="stat"><span class="muted">ยังไม่ลงออกงาน (คน-วัน)</span><b>${noOut}</b></div>
+    <div class="stat"><span class="muted">นอกสถานที่ (รอตรวจ)</span><b>${rows.filter((r) => r.offsite && !r.reviewed).length}</b></div>`;
   $("tSum").innerHTML = `<tr><th>วันที่</th><th>ชื่อ</th><th>รหัส</th><th>สาขา</th><th>เข้างาน</th><th>ออกงาน</th><th>ชั่วโมง</th></tr>` +
     (sum.map((s) => `<tr><td>${s.day}</td><td>${esc(s.name)}</td><td>${esc(s.empId)}</td><td>${esc(s.branches)}</td>
       <td>${s.firstIn ? fmtTime(s.firstIn) : `<span class="tag warn">ไม่มี</span>`}</td>
       <td>${s.lastOut ? fmtTime(s.lastOut) : `<span class="tag warn">ไม่มี</span>`}</td>
       <td>${s.hours != null ? s.hours.toFixed(2) : "-"}</td></tr>`).join("") || `<tr><td class="muted" colspan="7">ไม่มีข้อมูล</td></tr>`);
-  $("tRaw").innerHTML = `<tr><th>รูป</th><th>วัน-เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>สาขา</th><th>ระยะ</th><th>ท่า</th><th>แผนที่</th></tr>` +
+  $("tRaw").innerHTML = `<tr><th>รูป</th><th>วัน-เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>สาขา</th><th>ระยะ</th><th>ท่า</th><th>หมายเหตุ</th><th>แผนที่</th></tr>` +
     (rows.map((r) => `<tr>
       <td>${r.photo ? `<img class="thumb" loading="lazy" src="${r.photo}" data-cap="${esc(r.name)} · ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">`
         : r.hasPhoto ? `<button class="btn sm" data-pid="${r.id}" data-cap="${esc(r.name)} · ท่า: ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">📷 ดูรูป</button>` : `<span class="muted">-</span>`}</td>
       <td>${fmtDateTime(r.t)}</td><td>${esc(r.name)}</td>
-      <td><span class="tag ${r.type}">${r.type === "in" ? "เข้างาน" : "ออกงาน"}</span></td>
-      <td>${esc(r.branchName)}</td><td>${r.distance ?? "-"} ม. (±${r.accuracy ?? "-"})</td><td>${esc(r.gesture)}</td>
-      <td><a href="https://www.google.com/maps?q=${r.lat},${r.lng}" target="_blank" rel="noopener">ดู</a></td></tr>`).join("") || `<tr><td class="muted" colspan="8">ไม่มีข้อมูล</td></tr>`);
+      <td><span class="tag ${r.type}">${r.type === "in" ? "เข้างาน" : "ออกงาน"}</span>${r.offsite ? ` <span class="tag offsite">นอกสถานที่</span>` : ""}</td>
+      <td>${esc(r.branchName)}</td><td>${r.distance != null ? fmtDistM(r.distance) : "-"} (±${r.accuracy ?? "-"})</td><td>${esc(r.gesture)}</td>
+      <td class="wrap-txt">${esc(r.note || "")}${r.offsite ? (r.reviewed ? ` <span class="tag in">ตรวจแล้ว</span>` : ` <button class="btn sm" data-review="${r.id}">✓ ตรวจแล้ว</button>`) : ""}</td>
+      <td><a href="https://www.google.com/maps?q=${r.lat},${r.lng}" target="_blank" rel="noopener">ดู</a></td></tr>`).join("") || `<tr><td class="muted" colspan="9">ไม่มีข้อมูล</td></tr>`);
 }
+const fmtDistM = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " กม." : m + " ม.");
+$("tRaw").addEventListener("click", async (e) => {
+  const id = e.target.dataset && e.target.dataset.review; if (!id) return;
+  try { await updateDoc(doc(db, "checkins", id), { reviewed: true }); const r = reportRows.find((x) => x.id === id); if (r) r.reviewed = true; renderReport(); }
+  catch (err) { alert(errText(err)); }
+});
 $("btnReport").onclick = runReport;
 ["rBranch", "rType"].forEach((i) => $(i).addEventListener("change", renderReport));
 $("rSearch").addEventListener("input", renderReport);
@@ -358,8 +366,8 @@ $("btnCsvSum").onclick = () => {
 };
 $("btnCsvRaw").onclick = () => {
   downloadCsv(`${bkkDay()}_รายการเข้าออกงาน_${$("rFrom").value}_${$("rTo").value}.csv`,
-    ["วันที่", "เวลา", "ชื่อ", "รหัสพนักงาน", "ประเภท", "รหัสสาขา", "สาขา", "ระยะจากสาขา(ม.)", "ความแม่นยำ GPS(ม.)", "ท่า", "lat", "lng"],
-    filtered().slice().reverse().map((r) => [r.day, fmtTime(r.t), r.name, r.empId, r.type === "in" ? "เข้างาน" : "ออกงาน", r.branchId, r.branchName, r.distance, r.accuracy, r.gesture, r.lat, r.lng]));
+    ["วันที่", "เวลา", "ชื่อ", "รหัสพนักงาน", "ประเภท", "รหัสสาขา", "สาขา", "ระยะจากสาขา(ม.)", "ความแม่นยำ GPS(ม.)", "ท่า", "นอกสถานที่", "หมายเหตุ", "lat", "lng"],
+    filtered().slice().reverse().map((r) => [r.day, fmtTime(r.t), r.name, r.empId, r.type === "in" ? "เข้างาน" : "ออกงาน", r.branchId, r.branchName, r.distance, r.accuracy, r.gesture, r.offsite ? "ใช่" : "", r.note || "", r.lat, r.lng]));
 };
 
 /* ================= ลบรูปเก่า ================= */
@@ -501,11 +509,13 @@ async function runAtt() {
     for (const sd of shSnap.docs) {
       const s = sd.data(), uid = uidByPhone.get(s.phoneKey), list = uid ? byUid.get(uid) || [] : [];
       const sum = { name: s.name, nickname: s.nickname, branchId: s.branchId, store: s.store, phone: s.phone, hasAccount: !!uid,
-        work: 0, present: 0, late: 0, lateMin: 0, early: 0, earlyMin: 0, absent: 0, noOut: 0, off: 0, leave: 0, offWork: 0 };
+        work: 0, present: 0, offsite: 0, late: 0, lateMin: 0, early: 0, earlyMin: 0, absent: 0, noOut: 0, off: 0, leave: 0, offWork: 0 };
       for (const day of Object.keys(s.days || {}).sort()) {
         if (!day.startsWith(month) || (startDay && day < startDay)) continue;
         const code = s.days[day], info = shiftInfo(code);
-        const dayIns = list.filter((c) => c.day === day && c.type === "in").map((c) => c.t).sort((a, b) => a - b);
+        const dayRecs = list.filter((c) => c.day === day);
+        const dayIns = dayRecs.filter((c) => c.type === "in").map((c) => c.t).sort((a, b) => a - b);
+        const offRecs = dayRecs.filter((c) => c.offsite);
         const row = { day, name: s.name, nickname: s.nickname, store: s.store, branchId: s.branchId, code, sched: "", in: dayIns[0] || null, out: null, status: "", kind: "" , issue: false };
         if (!info) { row.status = "รหัสกะไม่รู้จัก"; row.kind = "warn"; row.issue = true; }
         else if (info.off) {
@@ -531,7 +541,8 @@ async function runAtt() {
               if (late > LATE_GRACE_MIN) { parts.push(`สาย ${late} นาที`); sum.late++; sum.lateMin += late; }
               if (row.out) { const early = Math.round((w.e - row.out) / 60000); if (early > 0) { parts.push(`ออกก่อน ${early} นาที`); sum.early++; sum.earlyMin += early; } }
               else if (now > limit) { parts.push("ไม่ลงออกงาน"); sum.noOut++; }
-              row.status = parts.join(" · ") || "ปกติ"; row.kind = parts.length ? "warn" : "in"; row.issue = parts.length > 0;
+              if (offRecs.length) { sum.offsite++; parts.push("นอกสถานที่: " + offRecs.map((c) => c.note).filter(Boolean).join(" / ")); }
+              row.status = parts.join(" · ") || "ปกติ"; row.kind = offRecs.length ? "offsite" : parts.length ? "warn" : "in"; row.issue = parts.length > 0;
             }
           }
         }
@@ -557,11 +568,11 @@ function renderAtt() {
   const t = (k) => sums.reduce((a, x) => a + x[k], 0);
   $("aStats").innerHTML = [["พนักงานในตาราง", sums.length], ["วันทำงาน (ถึงวันนี้)", t("work")], ["มาสาย (ครั้ง)", t("late")], ["ขาดงาน (วัน)", t("absent")], ["ออกก่อนเวลา", t("early")], ["ไม่ลงออกงาน", t("noOut")], ["ยังไม่มีบัญชี (คน)", sums.filter((x) => !x.hasAccount).length]]
     .map(([l, v]) => `<div class="stat"><span class="muted">${l}</span><b>${v}</b></div>`).join("");
-  $("tAttSum").innerHTML = `<tr><th>สาขา</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>วันทำงาน</th><th>มาทำงาน</th><th>สาย (ครั้ง/นาที)</th><th>ขาด</th><th>ออกก่อน</th><th>ไม่ลงออก</th><th>หยุด</th><th>ลา/พักร้อน/อบรม</th><th>บัญชี</th></tr>` +
-    (sums.map((x) => `<tr><td>${esc(x.store)}</td><td>${esc(x.name)}</td><td>${esc(x.nickname)}</td><td>${x.work}</td><td>${x.present}</td>
+  $("tAttSum").innerHTML = `<tr><th>สาขา</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>วันทำงาน</th><th>มาทำงาน</th><th>นอกสถานที่</th><th>สาย (ครั้ง/นาที)</th><th>ขาด</th><th>ออกก่อน</th><th>ไม่ลงออก</th><th>หยุด</th><th>ลา/พักร้อน/อบรม</th><th>บัญชี</th></tr>` +
+    (sums.map((x) => `<tr><td>${esc(x.store)}</td><td>${esc(x.name)}</td><td>${esc(x.nickname)}</td><td>${x.work}</td><td>${x.present}</td><td>${x.offsite || "-"}</td>
       <td>${x.late ? `<span class="tag warn">${x.late} / ${x.lateMin}</span>` : "-"}</td><td>${x.absent ? `<span class="tag off">${x.absent}</span>` : "-"}</td>
       <td>${x.early || "-"}</td><td>${x.noOut || "-"}</td><td>${x.off}</td><td>${x.leave}</td>
-      <td>${x.hasAccount ? `<span class="tag in">มี</span>` : `<span class="tag warn">ยังไม่มี</span>`}</td></tr>`).join("") || `<tr><td class="muted" colspan="12">ไม่มีข้อมูล</td></tr>`);
+      <td>${x.hasAccount ? `<span class="tag in">มี</span>` : `<span class="tag warn">ยังไม่มี</span>`}</td></tr>`).join("") || `<tr><td class="muted" colspan="13">ไม่มีข้อมูล</td></tr>`);
   const showAll = $("aShow").value === "all";
   const rows = days.filter((r) => showAll || r.issue);
   $("tAttDay").innerHTML = `<tr><th>วันที่</th><th>สาขา</th><th>ชื่อ</th><th>กะ</th><th>เวลากะ</th><th>เข้างาน</th><th>ออกงาน</th><th>สถานะ</th></tr>` +
@@ -575,8 +586,8 @@ $("aSearch").addEventListener("input", renderAtt);
 $("btnAttCsvSum").onclick = () => {
   const { sums } = attFiltered();
   downloadCsv(`${bkkDay()}_สรุปมาสายขาดงาน_${$("aMonth").value}.csv`,
-    ["สาขา", "ชื่อ", "ชื่อเล่น", "เบอร์โทร", "วันทำงาน", "มาทำงาน", "สาย(ครั้ง)", "สาย(นาทีรวม)", "ขาดงาน", "ออกก่อน(ครั้ง)", "ออกก่อน(นาทีรวม)", "ไม่ลงออก", "วันหยุด", "ลา/พักร้อน/อบรม", "เช็กอินในวันหยุด", "มีบัญชี"],
-    sums.map((x) => [x.store, x.name, x.nickname, x.phone, x.work, x.present, x.late, x.lateMin, x.absent, x.early, x.earlyMin, x.noOut, x.off, x.leave, x.offWork, x.hasAccount ? "มี" : "ไม่มี"]));
+    ["สาขา", "ชื่อ", "ชื่อเล่น", "เบอร์โทร", "วันทำงาน", "มาทำงาน", "นอกสถานที่(วัน)", "สาย(ครั้ง)", "สาย(นาทีรวม)", "ขาดงาน", "ออกก่อน(ครั้ง)", "ออกก่อน(นาทีรวม)", "ไม่ลงออก", "วันหยุด", "ลา/พักร้อน/อบรม", "เช็กอินในวันหยุด", "มีบัญชี"],
+    sums.map((x) => [x.store, x.name, x.nickname, x.phone, x.work, x.present, x.offsite, x.late, x.lateMin, x.absent, x.early, x.earlyMin, x.noOut, x.off, x.leave, x.offWork, x.hasAccount ? "มี" : "ไม่มี"]));
 };
 $("btnAttCsvDay").onclick = () => {
   const { days } = attFiltered();
