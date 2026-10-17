@@ -32,7 +32,7 @@
       <button data-t="users">พนักงาน</button>
       <button data-t="branches">สาขา</button>
       <button data-t="zones" class="rm-only">เขต (RM)</button>
-      <button data-t="tools" class="rm-only">ตั้งค่า/ดูแลระบบ</button>
+      <button data-t="tools">ตั้งค่า/ดูแลระบบ</button>
     </nav>
 
     <!-- รายงาน -->
@@ -158,9 +158,9 @@
         </div>
         <p class="msg" id="bMsg"></p>
       </div>
-      <div class="card rm-only">
+      <div class="card">
         <h3>นำเข้าหลายสาขา</h3>
-        <p class="muted">1 สาขาต่อ 1 บรรทัด: <b>รหัสสาขา, ชื่อสาขา, latitude, longitude, รัศมี, รหัสเขต</b> (เว้นพิกัดว่างไว้ได้ แล้วมาเติมทีหลัง · คัดลอกจาก Excel มาวางได้)</p>
+        <p class="muted">1 สาขาต่อ 1 บรรทัด: <b>รหัสสาขา, ชื่อสาขา, latitude, longitude, รัศมี, รหัสเขต</b> (เว้นพิกัดว่างไว้ได้ แล้วมาเติมทีหลัง · คัดลอกจาก Excel มาวางได้ · AM ไม่ต้องใส่รหัสเขต ระบบใส่เขตของคุณให้)</p>
         <textarea id="bBulk"></textarea>
         <div class="row" style="max-width:420px">
           <button id="btnBBulk" class="btn primary">นำเข้า</button>

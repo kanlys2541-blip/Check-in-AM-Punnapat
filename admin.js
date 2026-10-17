@@ -64,7 +64,7 @@ onAuthStateChanged(auth, async (user) => {
     $("rFrom").value = today; $("rTo").value = today;
     $("aMonth").value = today.slice(0, 7); $("aGrace").textContent = LATE_GRACE_MIN;
     runReport();
-  } catch (e) { screen("scLogin"); msg("liMsg", errText(e)); }
+  } catch (e) { screen("scLogin"); msg("liMsg", e && e.code === "permission-denied" ? "ล็อกอินได้แต่ฐานข้อมูลปฏิเสธการอ่าน — ตรวจว่าวาง Rules ล่าสุดใน Firebase และกด Publish แล้ว" : errText(e)); }
 });
 $("btnLogin").onclick = async () => {
   busy($("btnLogin"), true);
@@ -119,7 +119,7 @@ async function loadBranches() {
         <td>${has ? `${b.lat.toFixed(6)}, ${b.lng.toFixed(6)}` : `<span class="tag off">ยังไม่มีพิกัด</span>`}</td>
         <td>${b.radius || DEFAULT_RADIUS} ม.</td>
         <td>${has ? `<a href="https://www.google.com/maps?q=${b.lat},${b.lng}" target="_blank" rel="noopener">เปิด</a>` : "-"}</td>
-        <td class="actions"><button class="btn sm" data-bedit="${esc(b.id)}">แก้ไข</button>${isRM() ? `<button class="btn sm danger" data-bdel="${esc(b.id)}">ลบ</button>` : ""}</td></tr>`;
+        <td class="actions"><button class="btn sm" data-bedit="${esc(b.id)}">แก้ไข</button><button class="btn sm danger" data-bdel="${esc(b.id)}">ลบ</button></td></tr>`;
     }).join("");
 }
 function parseNum(v) { const n = parseFloat(String(v).trim()); return Number.isFinite(n) ? n : null; }
@@ -138,8 +138,9 @@ $("btnBSave").onclick = async () => {
   try {
     if (isRM()) await setDoc(doc(db, "branches", id), { name, lat, lng, radius, zoneId: $("bZone").value || "" });
     else {
-      if (!branches.some((b) => b.id === id)) throw new Error("AM แก้ไขได้เฉพาะสาขาในเขตตัวเอง (เพิ่มสาขาใหม่ให้ RM เป็นผู้เพิ่ม)");
-      await updateDoc(doc(db, "branches", id), { lat, lng, radius });
+      const other = allBranches.find((b) => b.id === id && b.zoneId && b.zoneId !== me.zoneId);
+      if (other) throw new Error(`สาขา ${id} อยู่ในเขต ${zName(other.zoneId)} — แก้ไขได้เฉพาะสาขาในเขตตัวเอง`);
+      await setDoc(doc(db, "branches", id), { name, lat, lng, radius, zoneId: me.zoneId });
     }
     msg("bMsg", "บันทึกแล้ว", "ok"); clearBranchForm(); await loadBranches();
   }
@@ -162,7 +163,7 @@ $("tBranches").addEventListener("click", async (e) => {
     const b = branches.find((x) => x.id === ed);
     $("bCode").value = b.id; $("bCode").disabled = true; $("bName").value = b.name || "";
     $("bLat").value = b.lat ?? ""; $("bLng").value = b.lng ?? ""; $("bRad").value = b.radius || DEFAULT_RADIUS;
-    $("bZone").value = b.zoneId || ""; $("bName").disabled = !isRM();
+    $("bZone").value = b.zoneId || "";
     $("bFormTitle").scrollIntoView({ behavior: "smooth" });
   }
   if (del && confirm(`ลบสาขา ${del}?`)) { await deleteDoc(doc(db, "branches", del)); loadBranches(); }
@@ -176,7 +177,11 @@ $("btnBBulk").onclick = async () => {
     const [id, name, la, ln, r, z] = l.split(/\t|,/).map((s) => (s || "").trim());
     if (!id || !name) { bad.push(l); continue; }
     const data = { name, lat: parseNum(la), lng: parseNum(ln), radius: parseNum(r) || DEFAULT_RADIUS };
-    if (z) data.zoneId = z;
+    if (!isRM()) {
+      const other = allBranches.find((b) => b.id === id && b.zoneId && b.zoneId !== me.zoneId);
+      if (other) { bad.push(`${id} (อยู่เขตอื่น)`); continue; }
+      data.zoneId = me.zoneId;
+    } else if (z) data.zoneId = z;
     batch.set(doc(db, "branches", id), data, { merge: true });
     n++;
   }
@@ -428,6 +433,19 @@ $("btnPurge").onclick = async () => {
   busy($("btnPurge"), true);
   let total = 0;
   try {
+    if (!isRM()) {
+      // AM: ลบเฉพาะรูปของเช็กอินในเขตตัวเอง
+      const old = (await getDocs(query(collection(db, "checkins"), where("zoneId", "==", me.zoneId)))).docs
+        .filter((d) => d.data().ts && d.data().ts.toMillis() < cutoff.toMillis() && d.data().hasPhoto !== false);
+      for (let i = 0; i < old.length; i += 400) {
+        const batch = writeBatch(db);
+        old.slice(i, i + 400).forEach((d) => { batch.delete(doc(db, "checkinPhotos", d.id)); batch.update(d.ref, { hasPhoto: false }); });
+        await batch.commit(); total += Math.min(400, old.length - i);
+        msg("pMsg", `ลบแล้ว ${total} รูป...`, "ok");
+      }
+      msg("pMsg", `เสร็จแล้ว ลบรูปทั้งหมด ${total} รูป (เฉพาะเขต ${zName(me.zoneId)})`, "ok");
+      return;
+    }
     // รูปที่แยกเก็บใน checkinPhotos
     for (;;) {
       const snap = await getDocs(query(collection(db, "checkinPhotos"), where("ts", "<", cutoff), orderBy("ts"), limit(300)));
@@ -512,7 +530,7 @@ $("sFile").onchange = async (e) => {
     $("tShiftPrev").innerHTML = `<tr><th>สาขา</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>เบอร์โทร</th><th>จำนวนวัน</th><th>บัญชีในระบบ</th><th>รหัสกะที่ไม่รู้จัก</th></tr>` +
       parsedShift.rows.map((r) => {
         const u = byPhone.get(r.phoneKey); if (u) matched++;
-        const outZone = !isRM() && r.zoneId !== me.zoneId;
+        const outZone = !isRM() && r.zoneId && r.zoneId !== me.zoneId;
         const unknown = [...new Set(Object.values(r.days).filter((c) => !shiftInfo(c)))];
         return `<tr><td>${esc(r.store)}</td><td>${esc(r.name)}</td><td>${esc(r.nickname)}</td><td>${esc(r.phone)}</td><td>${Object.keys(r.days).length}</td>
           <td>${outZone ? `<span class="tag off">นอกเขตของคุณ — ข้าม</span>` : !r.phoneKey ? `<span class="tag off">ไม่มีเบอร์</span>` : u ? `<span class="tag in">${esc(u.email)}</span>` : `<span class="tag warn">ยังไม่มีบัญชี</span>`}</td>
@@ -524,6 +542,7 @@ $("sFile").onchange = async (e) => {
 };
 $("btnSSave").onclick = async () => {
   if (!parsedShift) return;
+  if (!isRM()) parsedShift.rows.forEach((r) => { if (!r.zoneId) r.zoneId = me.zoneId; });
   const rows = parsedShift.rows.filter((r) => r.phoneKey && (isRM() || r.zoneId === me.zoneId));
   busy($("btnSSave"), true);
   try {
@@ -657,7 +676,8 @@ $("btnAttCsvDay").onclick = () => {
 
 /* ================= เขต (RM) ================= */
 async function loadZones() {
-  zones = (await getDocs(collection(db, "zones"))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.id.localeCompare(b.id));
+  try { zones = (await getDocs(collection(db, "zones"))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.id.localeCompare(b.id)); }
+  catch (e) { zones = []; console.warn("อ่านข้อมูลเขตไม่ได้ — ตรวจว่า Publish Rules ล่าสุดแล้ว", e); }
   const opts = zones.map((z) => `<option value="${esc(z.id)}">${esc(z.name || z.id)}</option>`).join("");
   $("rZone").innerHTML = `<option value="">ทุกเขต</option>` + opts;
   $("aZone").innerHTML = `<option value="">ทุกเขต</option>` + opts;
