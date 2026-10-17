@@ -102,3 +102,36 @@ export function busy(btn, on, label) {
   if (on) { btn.dataset.label = btn.textContent; btn.textContent = label || "กำลังดำเนินการ..."; btn.disabled = true; }
   else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
 }
+
+/* ---------- ตารางกะ ---------- */
+export const LATE_GRACE_MIN = 20; // อนุโลมมาสาย (นาที)
+export const SHIFT_CODES = {
+  A: { s: "08:00", e: "17:00" }, B: { s: "04:30", e: "13:30" }, C: { s: "05:00", e: "14:00" },
+  D: { s: "05:30", e: "14:30" }, E: { s: "07:00", e: "16:00" }, F: { s: "08:00", e: "17:00" },
+  G: { s: "09:30", e: "18:30" }, I: { s: "10:30", e: "19:30" }, J: { s: "11:00", e: "20:00" },
+  K: { s: "12:00", e: "21:00" }, W: { s: "12:00", e: "21:00" }, L: { s: "13:00", e: "22:00" },
+  M: { s: "21:00", e: "06:00" }, N: { s: "15:00", e: "24:00" }, O1: { s: "08:00", e: "17:00", note: "เปิดเซฟ" },
+  H: { off: "วันหยุด" }, V: { off: "พักร้อน" }, T: { off: "Training" }, MT: { off: "อบรม" },
+  "ลากิจ": { off: "ลากิจ" }, "ลาป่วย": { off: "ลาป่วย" }, "ลาคลอด": { off: "ลาคลอด" }
+};
+export function normCode(v) {
+  const s = String(v ?? "").trim();
+  return /^[a-z0-9]+$/i.test(s) ? s.toUpperCase() : s;
+}
+export function shiftInfo(code) { return SHIFT_CODES[normCode(code)] || null; }
+export function shiftLabel(code) {
+  const c = normCode(code), i = shiftInfo(c);
+  if (!c) return "ไม่มีกะ";
+  if (!i) return `รหัส ${c}`;
+  return i.off ? i.off : `กะ ${c} ${i.s}–${i.e}${i.note ? " (" + i.note + ")" : ""}`;
+}
+export function phoneKey(p) { const d = String(p ?? "").replace(/\D/g, ""); return d.length >= 9 ? d.slice(-9) : ""; }
+export function bkkTime(day, hhmm) {
+  if (hhmm === "24:00") return new Date(new Date(day + "T00:00:00+07:00").getTime() + 86400000);
+  return new Date(`${day}T${hhmm}:00+07:00`);
+}
+export function shiftWindow(day, info) {
+  const s = bkkTime(day, info.s); let e = bkkTime(day, info.e);
+  if (e <= s) e = new Date(e.getTime() + 86400000);
+  return { s, e };
+}

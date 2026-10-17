@@ -1,6 +1,6 @@
-import { auth, db, $, haversine, fmtDist, getDeviceId, isMobile, isInAppBrowser, bkkDay, fmtTime, fmtDateLong, GESTURES, errText, esc, busy } from "./common.js";
+import { auth, db, $, haversine, fmtDist, getDeviceId, isMobile, isInAppBrowser, bkkDay, fmtTime, fmtDateLong, GESTURES, errText, esc, busy, normCode, shiftInfo, shiftLabel } from "./common.js";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { doc, getDoc, getDocs, setDoc, updateDoc, addDoc, collection, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const SCREENS = ["scInApp", "scLoading", "scLogin", "scChangePw", "scDevice", "scBlocked", "scMain"];
 function screen(id) {
@@ -12,7 +12,7 @@ function msg(id, text, kind = "err") { const el = $(id); el.textContent = text |
 const deviceId = getDeviceId();
 let me = null, profile = null, branches = [], type = "in";
 let pos = null, watchId = null, inRange = false, dist = null;
-let stream = null, gesture = null, photo = null;
+let stream = null, gesture = null, photo = null, todayCode = "";
 
 /* ---------- เริ่มต้น ---------- */
 if (isInAppBrowser()) {
@@ -124,6 +124,22 @@ async function enterMain() {
   resetPhoto();
   startGeo();
   loadToday();
+  loadShift();
+}
+
+async function loadShift() {
+  const el = $("mShift");
+  el.classList.add("hidden"); todayCode = "";
+  if (!profile.phoneKey) return;
+  try {
+    const day = bkkDay();
+    const s = await getDoc(doc(db, "shifts", `${day.slice(0, 7)}_${profile.phoneKey}`));
+    if (!s.exists()) return;
+    todayCode = normCode((s.data().days || {})[day]);
+    const info = shiftInfo(todayCode);
+    el.textContent = "🕘 วันนี้: " + shiftLabel(todayCode);
+    el.className = "loc " + (info && info.off ? "bad" : "ok");
+  } catch (e) { /* ยังไม่มีตารางกะเดือนนี้ */ }
 }
 const curBranch = () => branches.find((b) => b.id === $("mBranch").value);
 
@@ -226,13 +242,17 @@ $("btnSubmit").onclick = async () => {
   busy($("btnSubmit"), true, "กำลังบันทึก...");
   msg("mMsg", "");
   try {
-    const ref = await addDoc(collection(db, "checkins"), {
+    const ref = doc(collection(db, "checkins"));
+    const batch = writeBatch(db);
+    batch.set(doc(db, "checkinPhotos", ref.id), { uid: me.uid, ts: serverTimestamp(), photo });
+    batch.set(ref, {
       uid: me.uid, name: profile.name || "", empId: profile.empId || "", position: profile.position || "",
-      branchId: b.id, branchName: b.name || "", type,
+      branchId: b.id, branchName: b.name || "", type, shiftCode: todayCode || "",
       ts: serverTimestamp(), day: bkkDay(),
       lat: pos.latitude, lng: pos.longitude, accuracy: Math.round(pos.accuracy), distance: Math.round(dist),
-      gesture: gesture.text, photo, deviceId, ua: navigator.userAgent.slice(0, 300)
+      gesture: gesture.text, hasPhoto: true, deviceId, ua: navigator.userAgent.slice(0, 300)
     });
+    await batch.commit();
     const s = await getDoc(ref);
     const t = s.data().ts && s.data().ts.toDate();
     $("doneText").innerHTML = `${type === "in" ? "เข้างาน" : "ออกงาน"} · ${esc(b.name)}<br>เวลา ${fmtTime(t)} น.`;

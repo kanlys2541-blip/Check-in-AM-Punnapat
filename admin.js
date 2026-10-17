@@ -1,4 +1,4 @@
-import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy } from "./common.js";
+import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN } from "./common.js";
 import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS } from "./firebase-config.js";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -46,6 +46,7 @@ onAuthStateChanged(auth, async (user) => {
     loadDevices();
     const today = bkkDay();
     $("rFrom").value = today; $("rTo").value = today;
+    $("aMonth").value = today.slice(0, 7); $("aGrace").textContent = LATE_GRACE_MIN;
     runReport();
   } catch (e) { screen("scLogin"); msg("liMsg", errText(e)); }
 });
@@ -61,14 +62,24 @@ $("btnLogout").onclick = () => signOut(auth);
 $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   [...$("tabs").children].forEach((x) => x.classList.toggle("on", x === b));
-  ["report", "devices", "users", "branches", "tools"].forEach((t) => $("t-" + t).classList.toggle("hidden", t !== b.dataset.t));
+  ["report", "shifts", "devices", "users", "branches", "tools"].forEach((t) => $("t-" + t).classList.toggle("hidden", t !== b.dataset.t));
   if (b.dataset.t === "devices") loadDevices();
 });
 
 /* ---------- photo modal ---------- */
-document.addEventListener("click", (e) => {
-  const img = e.target.closest("img.thumb"); if (!img) return;
-  $("photoBig").src = img.src; $("photoCap").textContent = img.dataset.cap || "";
+document.addEventListener("click", async (e) => {
+  const img = e.target.closest("img.thumb");
+  const pb = e.target.closest("button[data-pid]");
+  if (!img && !pb) return;
+  let src = img ? img.src : null;
+  if (pb) {
+    try {
+      const s = await getDoc(doc(db, "checkinPhotos", pb.dataset.pid));
+      src = s.exists() ? s.data().photo : null;
+    } catch (err) { src = null; }
+    if (!src) { alert("ไม่พบรูป (อาจถูกลบตามรอบลบรูปเก่าแล้ว)"); return; }
+  }
+  $("photoBig").src = src; $("photoCap").textContent = (img || pb).dataset.cap || "";
   $("photoModal").classList.remove("hidden");
 });
 $("btnPhotoClose").onclick = () => $("photoModal").classList.add("hidden");
@@ -81,6 +92,7 @@ async function loadBranches() {
   $("bCount").textContent = branches.length;
   const opts = branches.map((b) => `<option value="${esc(b.id)}">${esc(b.name)} (${esc(b.id)})</option>`).join("");
   $("rBranch").innerHTML = `<option value="">ทุกสาขา</option>` + opts;
+  $("aBranch").innerHTML = `<option value="">ทุกสาขา</option>` + opts;
   $("uBranch").innerHTML = `<option value="">— ไม่ระบุ —</option>` + opts;
   $("tBranches").innerHTML = `<tr><th>รหัส</th><th>ชื่อสาขา</th><th>พิกัด</th><th>รัศมี</th><th>แผนที่</th><th></th></tr>` +
     branches.map((b) => {
@@ -150,9 +162,9 @@ async function loadUsers() {
   users = (await getDocs(collection(db, "users"))).docs.map((d) => ({ uid: d.id, ...d.data() }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "th"));
   $("uCount").textContent = users.length;
-  $("tUsers").innerHTML = `<tr><th>ชื่อ</th><th>รหัส</th><th>อีเมล</th><th>ตำแหน่ง</th><th>สาขาประจำ</th><th>สิทธิ์</th><th>สถานะ</th><th>เครื่อง</th><th></th></tr>` +
+  $("tUsers").innerHTML = `<tr><th>ชื่อ</th><th>ชื่อเล่น</th><th>รหัส</th><th>อีเมล</th><th>เบอร์โทร</th><th>ตำแหน่ง</th><th>สาขาประจำ</th><th>สิทธิ์</th><th>สถานะ</th><th>เครื่อง</th><th></th></tr>` +
     users.map((u) => `<tr>
-      <td>${esc(u.name)}</td><td>${esc(u.empId)}</td><td>${esc(u.email)}</td><td>${esc(u.position)}</td><td>${esc(bName(u.branchId))}</td>
+      <td>${esc(u.name)}</td><td>${esc(u.nickname)}</td><td>${esc(u.empId)}</td><td>${esc(u.email)}</td><td>${esc(u.phone)}</td><td>${esc(u.position)}</td><td>${esc(bName(u.branchId))}</td>
       <td>${u.role === "admin" ? "หัวหน้า" : "พนักงาน"}</td>
       <td>${u.active === false ? `<span class="tag off">ระงับ</span>` : u.mustChangePassword ? `<span class="tag warn">ยังไม่เข้าครั้งแรก</span>` : `<span class="tag in">ใช้งาน</span>`}</td>
       <td>${u.deviceId ? "ผูกแล้ว" : "-"}</td>
@@ -178,13 +190,14 @@ async function addUser(d, pw) {
 }
 function resetUserForm() {
   editingUid = null;
-  ["uName", "uEmp", "uEmail", "uPw", "uPos"].forEach((i) => ($(i).value = ""));
+  ["uName", "uEmp", "uEmail", "uPw", "uPos", "uPhone", "uNick"].forEach((i) => ($(i).value = ""));
   $("uEmail").disabled = false; $("uPw").disabled = false; $("uRole").value = "staff"; $("uBranch").value = "";
   $("uFormTitle").textContent = "เพิ่มพนักงาน"; $("btnUSave").textContent = "เพิ่มพนักงาน"; $("btnUCancel").classList.add("hidden");
 }
 $("btnUCancel").onclick = resetUserForm;
 $("btnUSave").onclick = async () => {
-  const d = { name: $("uName").value.trim(), empId: $("uEmp").value.trim(), email: $("uEmail").value.trim().toLowerCase(), position: $("uPos").value.trim(), branchId: $("uBranch").value, role: $("uRole").value };
+  const d = { name: $("uName").value.trim(), empId: $("uEmp").value.trim(), email: $("uEmail").value.trim().toLowerCase(), position: $("uPos").value.trim(), branchId: $("uBranch").value, role: $("uRole").value,
+    phone: $("uPhone").value.trim(), phoneKey: phoneKey($("uPhone").value), nickname: $("uNick").value.trim() };
   if (!d.name) return msg("uMsg", "กรอกชื่อ-นามสกุล");
   busy($("btnUSave"), true);
   try {
@@ -210,14 +223,18 @@ $("btnUBulk").onclick = async () => {
   if (!lines.length) return msg("uBulkMsg", "ยังไม่มีข้อมูล");
   busy($("btnUBulk"), true);
   let ok = 0; const fail = [];
+  const existing = new Set(users.map((u) => (u.email || "").toLowerCase()));
+  let skip = 0;
   for (const l of lines) {
-    const [name, empId, email, position, branchId] = l.split(/\t|,/).map((s) => (s || "").trim());
-    if (!name || !email) { fail.push(`${l} (ข้อมูลไม่ครบ)`); continue; }
-    try { await addUser({ name, empId, email: email.toLowerCase(), position, branchId: branchId || "", role: "staff" }, pw); ok++; msg("uBulkMsg", `กำลังเพิ่ม... ${ok}/${lines.length}`, "ok"); }
+    const [name, empId, email, position, branchId, phone, nickname] = l.split(l.includes("\t") ? "\t" : ",").map((s) => (s || "").trim());
+    if (!name || !email || !email.includes("@")) { fail.push(`${name || l} (ไม่มีอีเมล)`); continue; }
+    if (existing.has(email.toLowerCase())) { skip++; continue; }
+    const bId = (String(branchId).match(/\d{4}/) || [""])[0];
+    try { await addUser({ name, empId, email: email.toLowerCase(), position, branchId: bId, role: "staff", phone: phone || "", phoneKey: phoneKey(phone), nickname: nickname || "" }, pw); ok++; msg("uBulkMsg", `กำลังเพิ่ม... ${ok}/${lines.length}`, "ok"); }
     catch (e) { fail.push(`${email} (${errText(e)})`); }
   }
   busy($("btnUBulk"), false);
-  msg("uBulkMsg", `เพิ่มสำเร็จ ${ok} คน` + (fail.length ? ` · ไม่สำเร็จ: ${fail.join(" | ")}` : ""), fail.length ? "err" : "ok");
+  msg("uBulkMsg", `เพิ่มสำเร็จ ${ok} คน` + (skip ? ` · ข้าม ${skip} คน (มีบัญชีอยู่แล้ว)` : "") + (fail.length ? ` · ไม่สำเร็จ: ${fail.join(" | ")}` : ""), fail.length ? "err" : "ok");
   loadUsers();
 };
 $("tUsers").addEventListener("click", async (e) => {
@@ -227,7 +244,8 @@ $("tUsers").addEventListener("click", async (e) => {
     if (t.uedit) {
       editingUid = u.uid;
       $("uName").value = u.name || ""; $("uEmp").value = u.empId || ""; $("uEmail").value = u.email || ""; $("uEmail").disabled = true;
-      $("uPw").value = ""; $("uPw").disabled = true; $("uPos").value = u.position || ""; $("uBranch").value = u.branchId || ""; $("uRole").value = u.role || "staff";
+      $("uPw").value = ""; $("uPw").disabled = true; $("uPos").value = u.position || "";
+      $("uPhone").value = u.phone || ""; $("uNick").value = u.nickname || ""; $("uBranch").value = u.branchId || ""; $("uRole").value = u.role || "staff";
       $("uFormTitle").textContent = "แก้ไข: " + u.name; $("btnUSave").textContent = "บันทึกการแก้ไข"; $("btnUCancel").classList.remove("hidden");
       $("uFormTitle").scrollIntoView({ behavior: "smooth" });
     } else if (t.ureset) {
@@ -314,7 +332,8 @@ function renderReport() {
       <td>${s.hours != null ? s.hours.toFixed(2) : "-"}</td></tr>`).join("") || `<tr><td class="muted" colspan="7">ไม่มีข้อมูล</td></tr>`);
   $("tRaw").innerHTML = `<tr><th>รูป</th><th>วัน-เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>สาขา</th><th>ระยะ</th><th>ท่า</th><th>แผนที่</th></tr>` +
     (rows.map((r) => `<tr>
-      <td>${r.photo ? `<img class="thumb" loading="lazy" src="${r.photo}" data-cap="${esc(r.name)} · ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">` : `<span class="muted">ลบแล้ว</span>`}</td>
+      <td>${r.photo ? `<img class="thumb" loading="lazy" src="${r.photo}" data-cap="${esc(r.name)} · ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">`
+        : r.hasPhoto ? `<button class="btn sm" data-pid="${r.id}" data-cap="${esc(r.name)} · ท่า: ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">📷 ดูรูป</button>` : `<span class="muted">-</span>`}</td>
       <td>${fmtDateTime(r.t)}</td><td>${esc(r.name)}</td>
       <td><span class="tag ${r.type}">${r.type === "in" ? "เข้างาน" : "ออกงาน"}</span></td>
       <td>${esc(r.branchName)}</td><td>${r.distance ?? "-"} ม. (±${r.accuracy ?? "-"})</td><td>${esc(r.gesture)}</td>
@@ -352,6 +371,17 @@ $("btnPurge").onclick = async () => {
   busy($("btnPurge"), true);
   let total = 0;
   try {
+    // รูปที่แยกเก็บใน checkinPhotos
+    for (;;) {
+      const snap = await getDocs(query(collection(db, "checkinPhotos"), where("ts", "<", cutoff), orderBy("ts"), limit(300)));
+      if (snap.empty) break;
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit(); total += snap.size;
+      msg("pMsg", `ลบแล้ว ${total} รูป...`, "ok");
+      if (snap.size < 300) break;
+    }
+    // รูปแบบเก่าที่เก็บในรายการเช็กอิน
     let lastDoc = null;
     for (;;) {
       const parts = [collection(db, "checkins"), where("ts", "<", cutoff), orderBy("ts")];
@@ -372,4 +402,185 @@ $("btnPurge").onclick = async () => {
     msg("pMsg", `เสร็จแล้ว ลบรูปทั้งหมด ${total} รูป`, "ok");
   } catch (e) { msg("pMsg", errText(e)); }
   finally { busy($("btnPurge"), false); }
+};
+
+/* ================= ตารางกะ: อัปโหลด ================= */
+let parsedShift = null;
+async function loadXLSX() {
+  if (window.XLSX) return window.XLSX;
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = res; s.onerror = () => rej(new Error("โหลดตัวอ่าน Excel ไม่สำเร็จ"));
+    document.head.appendChild(s);
+  });
+  return window.XLSX;
+}
+const serialToDay = (n) => new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+const cleanName = (s) => String(s ?? "").replace(/^\s*(คุณ|นางสาว|นาย|นาง|น\.ส\.)\s*/, "").replace(/\s+/g, " ").trim();
+
+function parseShiftRows(rows) {
+  const h = rows.findIndex((r) => r && String(r[0] ?? "").trim().toLowerCase() === "store");
+  if (h < 1) throw new Error('ไม่พบหัวตาราง "Store" ในคอลัมน์ A');
+  const cols = [];
+  (rows[h - 1] || []).forEach((v, i) => { if (i >= 6 && typeof v === "number" && v > 40000 && v < 80000) cols.push([i, serialToDay(v)]); });
+  if (!cols.length) throw new Error("ไม่พบแถววันที่เหนือหัวตาราง");
+  const out = [];
+  for (let i = h + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const store = String(r[0] ?? "").trim();
+    if (!store) { if (out.length) break; continue; }
+    const days = {};
+    cols.forEach(([c, d]) => { const v = normCode(r[c]); if (v) days[d] = v; });
+    const first = cleanName(r[1]), last = cleanName(r[2]);
+    out.push({ store, branchId: (store.match(/\d{4}/) || [""])[0], name: `${first} ${last}`.trim(), nickname: String(r[3] ?? "").trim(),
+      position: String(r[4] ?? "").trim(), phone: String(r[5] ?? "").trim(), phoneKey: phoneKey(r[5]), days });
+  }
+  const months = [...new Set(cols.map((c) => c[1].slice(0, 7)))];
+  return { rows: out, month: months.sort((a, b) => cols.filter((c) => c[1].startsWith(b)).length - cols.filter((c) => c[1].startsWith(a)).length)[0] };
+}
+
+$("sFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  parsedShift = null; $("btnSSave").classList.add("hidden"); $("tShiftPrev").innerHTML = "";
+  msg("sMsg", "กำลังอ่านไฟล์...", "ok");
+  try {
+    const XLSX = await loadXLSX();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    parsedShift = parseShiftRows(XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }));
+    const byPhone = new Map(users.filter((u) => u.phoneKey).map((u) => [u.phoneKey, u]));
+    let matched = 0;
+    $("tShiftPrev").innerHTML = `<tr><th>สาขา</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>เบอร์โทร</th><th>จำนวนวัน</th><th>บัญชีในระบบ</th><th>รหัสกะที่ไม่รู้จัก</th></tr>` +
+      parsedShift.rows.map((r) => {
+        const u = byPhone.get(r.phoneKey); if (u) matched++;
+        const unknown = [...new Set(Object.values(r.days).filter((c) => !shiftInfo(c)))];
+        return `<tr><td>${esc(r.store)}</td><td>${esc(r.name)}</td><td>${esc(r.nickname)}</td><td>${esc(r.phone)}</td><td>${Object.keys(r.days).length}</td>
+          <td>${!r.phoneKey ? `<span class="tag off">ไม่มีเบอร์</span>` : u ? `<span class="tag in">${esc(u.email)}</span>` : `<span class="tag warn">ยังไม่มีบัญชี</span>`}</td>
+          <td>${unknown.length ? `<span class="tag warn">${esc(unknown.join(", "))}</span>` : "-"}</td></tr>`;
+      }).join("");
+    msg("sMsg", `เดือน ${parsedShift.month} · พนักงาน ${parsedShift.rows.length} คน · จับคู่บัญชีได้ ${matched} คน (คนที่ยังไม่มีบัญชี บันทึกกะไว้ก่อนได้ เพิ่มบัญชีทีหลังจะจับคู่ให้อัตโนมัติด้วยเบอร์โทร)`, "ok");
+    $("btnSSave").classList.remove("hidden");
+  } catch (err) { msg("sMsg", errText(err)); }
+};
+$("btnSSave").onclick = async () => {
+  if (!parsedShift) return;
+  const rows = parsedShift.rows.filter((r) => r.phoneKey);
+  busy($("btnSSave"), true);
+  try {
+    const batch = writeBatch(db);
+    rows.forEach((r) => batch.set(doc(db, "shifts", `${parsedShift.month}_${r.phoneKey}`), { ...r, month: parsedShift.month, updatedAt: serverTimestamp() }));
+    await batch.commit();
+    msg("sMsg", `บันทึกตารางกะเดือน ${parsedShift.month} แล้ว ${rows.length} คน` + (rows.length < parsedShift.rows.length ? ` · ข้าม ${parsedShift.rows.length - rows.length} คนที่ไม่มีเบอร์โทร` : ""), "ok");
+    $("btnSSave").classList.add("hidden");
+    $("aMonth").value = parsedShift.month;
+  } catch (err) { msg("sMsg", errText(err)); }
+  finally { busy($("btnSSave"), false); }
+};
+
+/* ================= ตารางกะ: มาสาย / ขาด ================= */
+let att = { sums: [], days: [] };
+async function runAtt() {
+  const month = $("aMonth").value;
+  if (!month) return msg("aMsg", "เลือกเดือน");
+  busy($("btnAtt"), true, "กำลังคำนวณ...");
+  try {
+    const startDay = $("aStart").value || "";
+    const [y, mo] = month.split("-").map(Number);
+    const start = new Date(`${month}-01T00:00:00+07:00`);
+    const end = new Date(Date.UTC(y, mo, 1) - 7 * 3600000 + 86400000); // +1 วันเผื่อกะข้ามคืน
+    const [shSnap, ckSnap] = await Promise.all([
+      getDocs(query(collection(db, "shifts"), where("month", "==", month))),
+      getDocs(query(collection(db, "checkins"), where("ts", ">=", Timestamp.fromDate(start)), where("ts", "<", Timestamp.fromDate(end)), orderBy("ts")))
+    ]);
+    if (shSnap.empty) { att = { sums: [], days: [] }; renderAtt(); return msg("aMsg", `ยังไม่มีตารางกะเดือน ${month} — อัปโหลดไฟล์ที่ด้านล่าง`); }
+    const uidByPhone = new Map(users.filter((u) => u.phoneKey).map((u) => [u.phoneKey, u.uid]));
+    const byUid = new Map();
+    ckSnap.docs.forEach((d) => { const c = d.data(); if (!c.ts) return; const r = { ...c, t: c.ts.toDate() }; (byUid.get(c.uid) || byUid.set(c.uid, []).get(c.uid)).push(r); });
+    const now = new Date(), sums = [], days = [];
+    for (const sd of shSnap.docs) {
+      const s = sd.data(), uid = uidByPhone.get(s.phoneKey), list = uid ? byUid.get(uid) || [] : [];
+      const sum = { name: s.name, nickname: s.nickname, branchId: s.branchId, store: s.store, phone: s.phone, hasAccount: !!uid,
+        work: 0, present: 0, late: 0, lateMin: 0, early: 0, earlyMin: 0, absent: 0, noOut: 0, off: 0, leave: 0, offWork: 0 };
+      for (const day of Object.keys(s.days || {}).sort()) {
+        if (!day.startsWith(month) || (startDay && day < startDay)) continue;
+        const code = s.days[day], info = shiftInfo(code);
+        const dayIns = list.filter((c) => c.day === day && c.type === "in").map((c) => c.t).sort((a, b) => a - b);
+        const row = { day, name: s.name, nickname: s.nickname, store: s.store, branchId: s.branchId, code, sched: "", in: dayIns[0] || null, out: null, status: "", kind: "" , issue: false };
+        if (!info) { row.status = "รหัสกะไม่รู้จัก"; row.kind = "warn"; row.issue = true; }
+        else if (info.off) {
+          if (info.off === "วันหยุด") sum.off++; else sum.leave++;
+          row.status = info.off;
+          if (dayIns.length) { row.status += " (แต่มีเช็กอิน)"; row.kind = "warn"; row.issue = true; sum.offWork++; }
+        } else {
+          const w = shiftWindow(day, info);
+          row.sched = `${info.s}–${info.e}`;
+          if (now < w.s) { row.status = "ยังไม่ถึงกะ"; }
+          else {
+            sum.work++;
+            const limit = new Date(w.e.getTime() + 6 * 3600000);
+            const from = row.in || new Date(w.s.getTime() - 4 * 3600000);
+            row.out = list.filter((c) => c.type === "out" && c.t > from && c.t < limit).map((c) => c.t).sort((a, b) => b - a)[0] || null;
+            if (!uid) { row.status = "ยังไม่มีบัญชีในระบบ"; row.kind = "warn"; row.issue = true; }
+            else if (!row.in) {
+              if (now > w.e) { row.status = "ขาดงาน"; row.kind = "off"; row.issue = true; sum.absent++; }
+              else { row.status = "ยังไม่เช็กอิน"; row.kind = "warn"; row.issue = true; }
+            } else {
+              sum.present++;
+              const parts = [], late = Math.round((row.in - w.s) / 60000);
+              if (late > LATE_GRACE_MIN) { parts.push(`สาย ${late} นาที`); sum.late++; sum.lateMin += late; }
+              if (row.out) { const early = Math.round((w.e - row.out) / 60000); if (early > 0) { parts.push(`ออกก่อน ${early} นาที`); sum.early++; sum.earlyMin += early; } }
+              else if (now > limit) { parts.push("ไม่ลงออกงาน"); sum.noOut++; }
+              row.status = parts.join(" · ") || "ปกติ"; row.kind = parts.length ? "warn" : "in"; row.issue = parts.length > 0;
+            }
+          }
+        }
+        days.push(row);
+      }
+      sums.push(sum);
+    }
+    sums.sort((a, b) => String(a.store).localeCompare(String(b.store), "th") || String(a.name).localeCompare(String(b.name), "th"));
+    days.sort((a, b) => b.day.localeCompare(a.day) || String(a.store).localeCompare(String(b.store), "th"));
+    att = { sums, days };
+    msg("aMsg", `คำนวณจากข้อมูลถึง ${fmtDateTime(now)}`, "ok");
+    renderAtt();
+  } catch (err) { msg("aMsg", errText(err)); }
+  finally { busy($("btnAtt"), false); }
+}
+function attFiltered() {
+  const br = $("aBranch").value, s = $("aSearch").value.trim().toLowerCase();
+  const ok = (r) => (!br || r.branchId === br) && (!s || `${r.name} ${r.nickname}`.toLowerCase().includes(s));
+  return { sums: att.sums.filter(ok), days: att.days.filter(ok) };
+}
+function renderAtt() {
+  const { sums, days } = attFiltered();
+  const t = (k) => sums.reduce((a, x) => a + x[k], 0);
+  $("aStats").innerHTML = [["พนักงานในตาราง", sums.length], ["วันทำงาน (ถึงวันนี้)", t("work")], ["มาสาย (ครั้ง)", t("late")], ["ขาดงาน (วัน)", t("absent")], ["ออกก่อนเวลา", t("early")], ["ไม่ลงออกงาน", t("noOut")], ["ยังไม่มีบัญชี (คน)", sums.filter((x) => !x.hasAccount).length]]
+    .map(([l, v]) => `<div class="stat"><span class="muted">${l}</span><b>${v}</b></div>`).join("");
+  $("tAttSum").innerHTML = `<tr><th>สาขา</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>วันทำงาน</th><th>มาทำงาน</th><th>สาย (ครั้ง/นาที)</th><th>ขาด</th><th>ออกก่อน</th><th>ไม่ลงออก</th><th>หยุด</th><th>ลา/พักร้อน/อบรม</th><th>บัญชี</th></tr>` +
+    (sums.map((x) => `<tr><td>${esc(x.store)}</td><td>${esc(x.name)}</td><td>${esc(x.nickname)}</td><td>${x.work}</td><td>${x.present}</td>
+      <td>${x.late ? `<span class="tag warn">${x.late} / ${x.lateMin}</span>` : "-"}</td><td>${x.absent ? `<span class="tag off">${x.absent}</span>` : "-"}</td>
+      <td>${x.early || "-"}</td><td>${x.noOut || "-"}</td><td>${x.off}</td><td>${x.leave}</td>
+      <td>${x.hasAccount ? `<span class="tag in">มี</span>` : `<span class="tag warn">ยังไม่มี</span>`}</td></tr>`).join("") || `<tr><td class="muted" colspan="12">ไม่มีข้อมูล</td></tr>`);
+  const showAll = $("aShow").value === "all";
+  const rows = days.filter((r) => showAll || r.issue);
+  $("tAttDay").innerHTML = `<tr><th>วันที่</th><th>สาขา</th><th>ชื่อ</th><th>กะ</th><th>เวลากะ</th><th>เข้างาน</th><th>ออกงาน</th><th>สถานะ</th></tr>` +
+    (rows.slice(0, 1500).map((r) => `<tr><td>${r.day}</td><td>${esc(r.store)}</td><td>${esc(r.name)}${r.nickname ? ` (${esc(r.nickname)})` : ""}</td><td>${esc(r.code)}</td><td>${r.sched || "-"}</td>
+      <td>${r.in ? fmtTime(r.in) : "-"}</td><td>${r.out ? fmtTime(r.out) : "-"}</td><td>${r.kind ? `<span class="tag ${r.kind}">${esc(r.status)}</span>` : esc(r.status)}</td></tr>`).join("")
+      || `<tr><td class="muted" colspan="8">${showAll ? "ไม่มีข้อมูล" : "ไม่มีรายการผิดปกติ"}</td></tr>`);
+}
+$("btnAtt").onclick = runAtt;
+["aBranch", "aShow"].forEach((i) => $(i).addEventListener("change", renderAtt));
+$("aSearch").addEventListener("input", renderAtt);
+$("btnAttCsvSum").onclick = () => {
+  const { sums } = attFiltered();
+  downloadCsv(`${bkkDay()}_สรุปมาสายขาดงาน_${$("aMonth").value}.csv`,
+    ["สาขา", "ชื่อ", "ชื่อเล่น", "เบอร์โทร", "วันทำงาน", "มาทำงาน", "สาย(ครั้ง)", "สาย(นาทีรวม)", "ขาดงาน", "ออกก่อน(ครั้ง)", "ออกก่อน(นาทีรวม)", "ไม่ลงออก", "วันหยุด", "ลา/พักร้อน/อบรม", "เช็กอินในวันหยุด", "มีบัญชี"],
+    sums.map((x) => [x.store, x.name, x.nickname, x.phone, x.work, x.present, x.late, x.lateMin, x.absent, x.early, x.earlyMin, x.noOut, x.off, x.leave, x.offWork, x.hasAccount ? "มี" : "ไม่มี"]));
+};
+$("btnAttCsvDay").onclick = () => {
+  const { days } = attFiltered();
+  downloadCsv(`${bkkDay()}_รายวันตามกะ_${$("aMonth").value}.csv`,
+    ["วันที่", "สาขา", "ชื่อ", "ชื่อเล่น", "รหัสกะ", "เวลากะ", "เข้างาน", "ออกงาน", "สถานะ"],
+    days.slice().reverse().map((r) => [r.day, r.store, r.name, r.nickname, r.code, r.sched, r.in ? fmtTime(r.in) : "", r.out ? fmtTime(r.out) : "", r.status]));
 };
