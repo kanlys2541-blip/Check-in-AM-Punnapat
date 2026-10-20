@@ -17,6 +17,8 @@ let me = null, profile = null, branches = [], type = "in", lockedType = null;
 let pos = null, watchId = null, inRange = false, dist = null;
 let stream = null, gesture = null, photo = null, todayCode = "", beauty = 1;
 let monthDays = {};   // กะของเดือนนี้ (รวมรายการที่สลับแล้ว)
+let DEMO = false;     // โหมดทดลองสำหรับผู้ดูแล: เห็นทุกขั้นตอน แต่ไม่บันทึกข้อมูล
+const isAdminRole = () => profile && ["rm", "admin", "am"].includes(profile.role);
 
 /* ---------- เริ่มต้น ---------- */
 if (isInAppBrowser()) {
@@ -41,12 +43,22 @@ async function onUser(user) {
     profile = snap.data();
     if (profile.active === false) return blocked("บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อหัวหน้า");
     if (profile.mustChangePassword) { screen("scChangePw"); return; }
-    if (["rm", "admin", "am"].includes(profile.role)) { screen("scAdmin"); return; }
+    if (isAdminRole()) { if (new URLSearchParams(location.search).has("demo")) return enterDemo(); screen("scAdmin"); return; }
     await checkDevice();
   } catch (e) { blocked(errText(e)); }
 }
 function blocked(text) { $("blkText").textContent = text; screen("scBlocked"); }
-$("btnAdminTest").onclick = async () => { try { await checkDevice(); } catch (e) { blocked(errText(e)); } };
+$("btnAdminTest").onclick = () => enterDemo();
+async function enterDemo() {
+  DEMO = true;
+  $("demoBar").classList.remove("hidden");
+  try { await enterMain(); } catch (e) { blocked(errText(e)); }
+}
+$("demoInRange").addEventListener("change", () => {
+  const b = curBranch();
+  if ($("demoInRange").checked && b) { if (watchId !== null) navigator.geolocation.clearWatch(watchId); watchId = null; pos = { latitude: b.lat, longitude: b.lng, accuracy: 10 }; updateLoc(); }
+  else { pos = null; startGeo(); }
+});
 
 /* ---------- ล็อกอิน ---------- */
 $("btnLogin").onclick = async () => {
@@ -64,7 +76,7 @@ $("btnForgot").onclick = async () => {
   try { await sendPasswordResetEmail(auth, email); msg("liMsg", "ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว (ตรวจในกล่อง Junk/Spam ด้วย)", "ok"); }
   catch (e) { msg("liMsg", errText(e)); }
 };
-$("btnLogout").onclick = () => { stopAll(); signOut(auth); };
+$("btnLogout").onclick = () => { stopAll(); DEMO = false; $("demoBar").classList.add("hidden"); signOut(auth); };
 
 /* ---------- เปลี่ยนรหัสผ่านครั้งแรก ---------- */
 $("btnChangePw").onclick = async () => {
@@ -135,7 +147,7 @@ async function enterMain() {
   sel.innerHTML = branches.map((b) => `<option value="${esc(b.id)}">${esc(b.name)} (${esc(b.id)})</option>`).join("")
     || `<option value="">— ยังไม่มีสาขาที่ตั้งพิกัดไว้ —</option>`;
   if (profile.branchId && branches.some((b) => b.id === profile.branchId)) sel.value = profile.branchId;
-  sel.onchange = updateLoc;
+  sel.onchange = () => { if (DEMO && $("demoInRange").checked) { const b = curBranch(); if (b) pos = { latitude: b.lat, longitude: b.lng, accuracy: 10 }; } updateLoc(); };
   applyLock();
   resetPhoto();
   startGeo();
@@ -147,6 +159,13 @@ async function enterMain() {
 
 // บังคับสลับ: ล่าสุดเข้างาน → ต้องออกงาน, ล่าสุดออกงาน → ต้องเข้างาน
 function applyLock() {
+  if (DEMO) {
+    lockedType = type;
+    [...$("segType").children].forEach((b) => { b.disabled = false; });
+    setType(type);
+    $("mState").textContent = "โหมดทดลอง: กดสลับ เข้างาน/ออกงาน ได้อิสระ (ของจริงระบบจะบังคับสลับให้ เข้า → ออก)";
+    return;
+  }
   lockedType = profile.lastType === "in" ? "out" : "in";
   [...$("segType").children].forEach((b) => { b.disabled = b.dataset.v !== lockedType; });
   setType(lockedType);
@@ -159,6 +178,16 @@ function applyLock() {
 async function loadShift() {
   const el = $("mShift");
   el.classList.add("hidden"); todayCode = ""; monthDays = {};
+  if (DEMO && !profile.phoneKey) {
+    // ตัวอย่างตารางกะ (ผู้ดูแลไม่มีกะของตัวเอง)
+    const day = bkkDay(), [y, m] = day.split("-").map(Number), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (let i = 1; i <= last; i++) { const d = `${day.slice(0, 7)}-${String(i).padStart(2, "0")}`; monthDays[d] = new Date(d + "T12:00:00+07:00").getDay() === 3 ? "H" : "9"; }
+    todayCode = normCode(monthDays[day]);
+    $("mShift").textContent = "🕘 วันนี้: " + shiftLabel(todayCode) + " (ตัวอย่าง)";
+    $("mShift").className = "loc " + (shiftInfo(todayCode).off ? "bad" : "ok");
+    fillRequestForm();
+    return;
+  }
   if (!profile.phoneKey) return;
   const day = bkkDay(), key = `${day.slice(0, 7)}_${profile.phoneKey}`;
   let s = null, o = null;
@@ -176,7 +205,7 @@ const curBranch = () => branches.find((b) => b.id === $("mBranch").value);
 
 $("segType").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !b.disabled) setType(b.dataset.v); });
 function setType(v) {
-  type = v;
+  type = v; if (DEMO) lockedType = v;
   [...$("segType").children].forEach((b) => b.classList.toggle("on", b.dataset.v === v));
   const out = v === "out";
   $("camCard").classList.toggle("hidden", out);
@@ -431,6 +460,14 @@ $("btnSubmit").onclick = async () => {
   const off = isOff() || (type === "out" && !inRange);
   busy($("btnSubmit"), true, "กำลังบันทึก...");
   msg("mMsg", "");
+  if (DEMO) {
+    $("doneText").innerHTML = `🧪 ทดลอง (ไม่ได้บันทึกจริง)<br>${type === "in" ? "เข้างาน" : "ออกงาน"} · ${off ? (type === "in" ? "นอกสถานที่" : "นอกพื้นที่สาขา") : esc(b.name)}<br>เวลา ${fmtTime(new Date())} น.${note ? `<br>เหตุผล: ${esc(note)}` : ""}`;
+    $("donePhoto").src = photo || ""; $("donePhoto").classList.toggle("hidden", !(type === "in" && photo));
+    $("done").classList.remove("hidden");
+    $("mNote").value = ""; $("mOff").checked = false;
+    resetPhoto(); busy($("btnSubmit"), false); refresh();
+    return;
+  }
   try {
     const ref = doc(collection(db, "checkins"));
     const batch = writeBatch(db);
@@ -447,6 +484,7 @@ $("btnSubmit").onclick = async () => {
     const s = await getDoc(ref);
     const t = s.data().ts && s.data().ts.toDate();
     profile.lastType = type; profile.lastAt = s.data().ts;
+    $("donePhoto").classList.add("hidden");
     $("doneText").innerHTML = `${type === "in" ? "เข้างาน" : "ออกงาน"} · ${off ? (type === "in" ? "นอกสถานที่" : "นอกพื้นที่สาขา") : esc(b.name)}<br>เวลา ${fmtTime(t)} น.`;
     $("mNote").value = ""; $("mOff").checked = false;
     $("done").classList.remove("hidden");
@@ -502,6 +540,7 @@ $("btnRq").onclick = async () => {
     changes = { [a]: normCode(monthDays[bDay] || ""), [bDay]: normCode(monthDays[a] || "") };
   } else changes = { [a]: $("rqCode").value };
   const from = {}; Object.keys(changes).forEach((d) => (from[d] = normCode(monthDays[d] || "")));
+  if (DEMO) return msg("rqMsg", "🧪 โหมดทดลอง: ของจริงคำขอนี้จะไปขึ้นที่แท็บ \"กะ & มาสาย/ขาด\" ของหัวหน้าให้กดอนุมัติ", "ok");
   busy($("btnRq"), true);
   try {
     await setDoc(doc(collection(db, "shiftRequests")), {

@@ -58,10 +58,16 @@
     <h2>บัญชีผู้ดูแลไม่ต้องเช็กอิน</h2>
     <p class="muted">ลิงก์นี้สำหรับพนักงาน — ผู้ดูแลใช้หน้าผู้ดูแล (admin.html)</p>
     <div class="row"><a id="lnkAdmin" class="btn primary" href="admin.html" style="text-align:center;text-decoration:none">ไปหน้าผู้ดูแล</a></div>
-    <button id="btnAdminTest" class="link">ทดสอบเช็กอินด้วยบัญชีนี้</button>
+    <button id="btnAdminTest" class="btn block" style="margin-top:10px">🧪 ทดลองหน้าเช็กอิน (ไม่บันทึกจริง)</button>
+    <p class="muted" style="margin-top:6px">ดูหน้าตาและลองกดได้ทุกขั้นตอนเหมือนพนักงาน — กล้อง ฟิลเตอร์ GPS ขอสลับกะ — แต่ระบบจะไม่บันทึกข้อมูลใด ๆ</p>
   </section>
 
   <section id="scMain" class="hidden">
+    <div id="demoBar" class="demo hidden">
+      <b>🧪 โหมดทดลอง</b> — ไม่บันทึกข้อมูลจริง
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="demoInRange"> จำลองว่าอยู่ในพื้นที่สาขา (ลองจากที่ไหนก็ได้)</label>
+      <div class="row" style="margin-top:6px"><a class="btn sm" href="admin.html" style="text-decoration:none;text-align:center">← กลับหน้าผู้ดูแล</a></div>
+    </div>
     <div class="card">
       <div class="who">
         <div><div id="mName" class="big"></div><div id="mPos" class="muted"></div></div>
@@ -127,7 +133,7 @@
   </section>
 </main>
 
-<div id="done" class="overlay hidden"><div class="okcard"><div class="tick">✓</div><div class="big">สำเร็จ</div><div id="doneText" class="muted"></div><button id="btnDone" class="btn primary">ตกลง</button></div></div>
+<div id="done" class="overlay hidden"><div class="okcard"><div class="tick">✓</div><div class="big">สำเร็จ</div><div id="doneText" class="muted"></div><img id="donePhoto" class="hidden" alt="" style="width:100%;border-radius:10px;margin:10px 0"><button id="btnDone" class="btn primary">ตกลง</button></div></div>
 <canvas id="canvas" class="hidden"></canvas>
 <script type="module" src="app.js"></script>
 </body>
