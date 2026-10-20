@@ -116,7 +116,6 @@ th{background:#f4f7fe;color:var(--brand-2)}
 .seg button:disabled{opacity:.35;cursor:not-allowed}
 .cam video.bz1{filter:brightness(1.12) contrast(.96)}
 .cam video.bz2{filter:brightness(1.07) contrast(.97)}
-.cam video.bz3{filter:brightness(1.1) contrast(.95) saturate(1.06) hue-rotate(-5deg)}
 .stats.sm .stat b{font-size:1.2rem}
 .dev{font-size:.82rem;line-height:1.35;margin:2px 0}
 .dev b{color:var(--brand-2)}

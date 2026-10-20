@@ -308,11 +308,9 @@ $("btnFilter").onclick = () => {
 const BEAUTY_WHITE = { target: 166, sat: 1.04, base: 0, sr: 0.04, sg: 0.06, sb: 0.08, smooth: 0.38, lip: 0.25, lipC: [205, 95, 115], glow: 0, blush: 0.05, pink: 0, label: "ขาวใส" };
 // ผิวดี (แนว Good Skin): ผิวใสอมชมพูแบบธรรมชาติ
 const BEAUTY = { target: 156, sat: 1.03, base: 0, sr: 0.04, sg: 0.07, sb: 0.11, smooth: 0.32, lip: 0.25, lipC: [205, 95, 115], glow: 0, blush: 0.06, pink: 0, label: "ผิวดี" };
-// ชมพูใส (แนว Elcee Beauty): ผิวขาวอมชมพู ฉ่ำโกลว์ แก้มระเรื่อ ปากแดงชมพูชัด
-const BEAUTY_PINK = { target: 162, sat: 1.06, base: 0, sr: 0.08, sg: 0.08, sb: 0.1, smooth: 0.45, lip: 0.45, lipC: [212, 60, 90], glow: 0.08, blush: 0.15, pink: 0.03, label: "ชมพูใส" };
-const PRESETS = [null, BEAUTY_WHITE, BEAUTY, BEAUTY_PINK];
+const PRESETS = [null, BEAUTY_WHITE, BEAUTY];
 const BEAUTY_NAMES = ["ปิด", ...PRESETS.slice(1).map((p) => p.label)];
-function setVidClass(v) { [1, 2, 3].forEach((k) => v.classList.toggle("bz" + k, beauty === k)); }
+function setVidClass(v) { [1, 2].forEach((k) => v.classList.toggle("bz" + k, beauty === k)); }
 function showBeauty() {
   $("btnFilter").textContent = `✨ ฟิลเตอร์หน้าสวย: ${BEAUTY_NAMES[beauty]} (กดเพื่อเปลี่ยน)`;
   setVidClass($("video"));
