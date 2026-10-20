@@ -54,6 +54,13 @@
 
   <section id="scBlocked" class="card hidden"><h2>ไม่สามารถใช้งานได้</h2><p id="blkText"></p></section>
 
+  <section id="scAdmin" class="card hidden">
+    <h2>บัญชีผู้ดูแลไม่ต้องเช็กอิน</h2>
+    <p class="muted">ลิงก์นี้สำหรับพนักงาน — ผู้ดูแลใช้หน้าผู้ดูแล (admin.html)</p>
+    <div class="row"><a id="lnkAdmin" class="btn primary" href="admin.html" style="text-align:center;text-decoration:none">ไปหน้าผู้ดูแล</a></div>
+    <button id="btnAdminTest" class="link">ทดสอบเช็กอินด้วยบัญชีนี้</button>
+  </section>
+
   <section id="scMain" class="hidden">
     <div class="card">
       <div class="who">
@@ -62,14 +69,22 @@
       <div id="mDate" class="muted" style="margin-top:4px"></div>
       <div id="mShift" class="loc wait hidden" style="margin-top:8px"></div>
       <div class="seg" id="segType"><button data-v="in" class="on">เข้างาน</button><button data-v="out">ออกงาน</button></div>
+      <div id="mState" class="muted" style="margin-top:6px"></div>
       <label>สาขา<select id="mBranch"></select></label>
       <div id="locBox" class="loc wait">📍 กำลังหาตำแหน่ง...</div>
-      <label class="chk"><input type="checkbox" id="mOff"> ทำงานนอกสถานที่ (ไม่ได้อยู่ที่สาขา)</label>
-      <label>หมายเหตุ <span id="noteReq">(ไม่บังคับ)</span>
-        <textarea id="mNote" maxlength="300" style="min-height:64px" placeholder="เช่น ประชุมที่ HUB บางนา / ดูงานอีเวนต์ที่... / ลืมกดออกงาน ออกจริง 17:10"></textarea></label>
+      <label class="chk" id="offWrap"><input type="checkbox" id="mOff"> ทำงานนอกสถานที่ (ไม่ได้อยู่ที่สาขา)</label>
+      <div id="noteWrap">
+        <label>เหตุผล / หมายเหตุ <span id="noteReq">(ไม่บังคับ)</span></label>
+        <div class="chips hidden" id="noteChips">
+          <button type="button">ไปประชุม HUB ลำลูกกา</button><button type="button">ไปประชุม HUB บางนา</button>
+          <button type="button">หาลูกค้านอกสถานที่</button><button type="button">พบหน่วยงานราชการ</button>
+          <button type="button">ดูงานอีเวนต์</button><button type="button">อบรม</button><button type="button">ลืมกดออกงาน</button>
+        </div>
+        <textarea id="mNote" maxlength="300" style="min-height:64px" placeholder="เช่น ไปประชุม HUB ลำลูกกา, หาลูกค้านอกสถานที่, พบหน่วยงานราชการ"></textarea>
+      </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="camCard">
       <div id="gesture" class="gesture hidden"></div>
       <div class="cam">
         <video id="video" playsinline muted autoplay class="hidden"></video>
@@ -81,13 +96,34 @@
         <button id="btnShoot" class="btn primary hidden">ถ่ายรูป</button>
         <button id="btnRetake" class="btn hidden">ถ่ายใหม่</button>
       </div>
+      <button id="btnFilter" class="link">✨ ฟิลเตอร์หน้าสวย: เปิด</button>
     </div>
+    <div class="card hidden" id="outNoPhoto"><p class="muted" style="margin:0">📷 ออกงานไม่ต้องถ่ายรูป — ระบบบันทึกตำแหน่ง GPS ให้อัตโนมัติ</p></div>
 
     <button id="btnSubmit" class="btn primary block" disabled>ยืนยันเข้างาน</button>
     <p class="msg" id="mMsg"></p>
     <p class="muted center">เวลาเข้า-ออกงานบันทึกจากเวลาเซิร์ฟเวอร์</p>
 
     <div class="card"><h3>รายการวันนี้</h3><ul id="today" class="list"><li class="muted">ยังไม่มีรายการ</li></ul></div>
+
+    <div class="card">
+      <h3>ขอสลับวัน / เปลี่ยนกะ</h3>
+      <p class="muted" style="margin:0">เช่น วันหยุดแต่มาทำงาน → ขอสลับกับวันทำงานอีกวัน · หัวหน้าอนุมัติแล้วรายงานจะใช้กะใหม่</p>
+      <div class="seg" id="rqMode"><button data-v="swap" class="on">สลับ 2 วัน</button><button data-v="change">เปลี่ยนกะวันเดียว</button></div>
+      <label>วันที่<select id="rqDayA"></select></label>
+      <label id="rqBWrap">สลับกับวันที่<select id="rqDayB"></select></label>
+      <label id="rqCodeWrap" class="hidden">เปลี่ยนเป็น<select id="rqCode"></select></label>
+      <label>เหตุผล<input id="rqReason" maxlength="200" placeholder="เช่น มีอีเวนต์วันเสาร์ ขอหยุดวันอังคารแทน"></label>
+      <div class="row"><button id="btnRq" class="btn primary">ส่งคำขอ</button></div>
+      <p class="msg" id="rqMsg"></p>
+      <ul id="rqList" class="list"></ul>
+    </div>
+
+    <div class="card">
+      <h3>ประวัติของฉัน (เดือนนี้)</h3>
+      <div class="stats" id="hStats"></div>
+      <ul id="hList" class="list"><li class="muted">กำลังโหลด...</li></ul>
+    </div>
   </section>
 </main>
 

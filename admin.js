@@ -1,10 +1,10 @@
-import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN } from "./common.js";
+import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN, displayCode, shiftLabel, mergeDays } from "./common.js";
 import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS } from "./firebase-config.js";
 import * as CFG from "./firebase-config.js";
 const MULTI_ZONE = CFG.MULTI_ZONE !== false; // false = ใช้คนเดียว ไม่แบ่งเขต
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, startAfter, writeBatch, Timestamp, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, startAfter, writeBatch, Timestamp, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const SEED_BRANCHES = `5175, Bangkadi, , , 200
 5052, Pathumthani, , , 200
@@ -26,7 +26,7 @@ const screen = (id) => { SCREENS.forEach((s) => $(s).classList.toggle("hidden", 
 const msg = (id, t, k = "err") => { $(id).textContent = t || ""; $(id).className = "msg " + k; };
 
 const STAFF_DOMAIN = ""; // ใส่ "lotuss.com" ถ้าต้องการบังคับโดเมนอีเมลพนักงาน ("" = ใช้อีเมลอะไรก็ได้)
-let branches = [], allBranches = [], users = [], reportRows = [], zones = [];
+let branches = [], allBranches = [], users = [], reportRows = [], zones = [], reportLoaded = false;
 let me = { uid: "", role: "", zoneId: "", owner: false };
 const isRM = () => me.owner || me.role === "rm" || me.role === "admin";
 const bName = (id) => (allBranches.find((b) => b.id === id) || {}).name || id || "-";
@@ -66,7 +66,7 @@ onAuthStateChanged(auth, async (user) => {
     const today = bkkDay();
     $("rFrom").value = today; $("rTo").value = today;
     $("aMonth").value = today.slice(0, 7); $("aGrace").textContent = LATE_GRACE_MIN;
-    runReport();
+    runToday(); loadShiftRequests();
   } catch (e) { screen("scLogin"); msg("liMsg", e && e.code === "permission-denied" ? "ล็อกอินได้แต่ฐานข้อมูลปฏิเสธการอ่าน — ตรวจว่าวาง Rules ล่าสุดใน Firebase และกด Publish แล้ว" : errText(e)); }
 });
 $("btnLogin").onclick = async () => {
@@ -81,7 +81,10 @@ $("btnLogout").onclick = () => signOut(auth);
 $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   [...$("tabs").children].forEach((x) => x.classList.toggle("on", x === b));
-  ["report", "shifts", "devices", "users", "branches", "zones", "tools"].forEach((t) => $("t-" + t).classList.toggle("hidden", t !== b.dataset.t));
+  ["today", "report", "shifts", "devices", "users", "branches", "zones", "tools"].forEach((t) => $("t-" + t).classList.toggle("hidden", t !== b.dataset.t));
+  if (b.dataset.t === "today") runToday();
+  if (b.dataset.t === "report" && !reportLoaded) { reportLoaded = true; runReport(); }
+  if (b.dataset.t === "shifts") { loadShiftRequests(); if (!att.sums.length) runAtt(); }
   if (b.dataset.t === "devices") loadDevices();
   if (b.dataset.t === "zones") loadZones();
 });
@@ -204,13 +207,23 @@ async function loadUsers() {
       <td>${esc(u.name)}</td><td>${esc(u.nickname)}</td><td>${esc(u.empId)}</td><td>${esc(u.email)}</td><td>${esc(u.phone)}</td><td>${esc(u.position)}</td><td>${esc(bName(u.branchId))}</td><td>${u.zoneId ? esc(zName(u.zoneId)) : "-"}</td>
       <td>${ROLE_LABEL[u.role] || "พนักงาน"}</td>
       <td>${u.active === false ? `<span class="tag off">ระงับ</span>` : u.mustChangePassword ? `<span class="tag warn">ยังไม่เข้าครั้งแรก</span>` : `<span class="tag in">ใช้งาน</span>`}</td>
-      <td>${(u.deviceIds && u.deviceIds.length) ? `ผูก ${u.deviceIds.length} ที่` : u.deviceId ? "ผูก 1 ที่" : "-"}</td>
+      <td>${devCell(u)}</td>
       <td class="actions">
         <button class="btn sm" data-uedit="${u.uid}">แก้ไข</button>
         <button class="btn sm" data-ureset="${u.uid}">รีเซ็ตเครื่อง</button>
+        ${u.lastType === "in" ? `<button class="btn sm" data-uunlock="${u.uid}" title="กรณีพนักงานลืมออกงาน แล้วต้องเข้างานวันใหม่">ปลดล็อกให้กดเข้างานได้</button>` : ""}
         <button class="btn sm" data-upw="${u.uid}">ส่งลิงก์ตั้งรหัสใหม่</button>
         <button class="btn sm ${u.active === false ? "" : "danger"}" data-uact="${u.uid}">${u.active === false ? "เปิดใช้งาน" : "ระงับ"}</button>
       </td></tr>`).join("");
+}
+// รายละเอียดเครื่องที่ผูก (ระบบ/รุ่น/ช่องทาง) — เบอร์โทรจากซิม และรุ่น iPhone อ่านจากเว็บไม่ได้
+const devText = (i) => i ? [i.os, i.model, i.browser, i.channel].filter(Boolean).join(" · ") : "";
+function devCell(u) {
+  const ids = (u.deviceIds && u.deviceIds.length) ? u.deviceIds : u.deviceId ? [u.deviceId] : [];
+  if (!ids.length) return "-";
+  const info = u.devices || {};
+  return ids.map((id) => `<div class="dev">${esc(devText(info[id]) || "เครื่องเดิม (ไม่มีรายละเอียด)")}${info[id] && info[id].at ? ` <span class="muted">· ${fmtDateTime(info[id].at.toDate ? info[id].at.toDate() : new Date(info[id].at))}</span>` : ""}
+    <button class="btn sm" data-udevdel="${u.uid}|${esc(id)}" title="ลบที่นี้">✕</button></div>`).join("");
 }
 function genPw() { const c = "abcdefghjkmnpqrstuvwxyz23456789"; return Array.from({ length: 8 }, () => c[Math.floor(Math.random() * c.length)]).join(""); }
 $("btnUGen").onclick = () => { $("uPw").value = genPw(); };
@@ -285,7 +298,17 @@ $("btnUBulk").onclick = async () => {
   loadUsers();
 };
 $("tUsers").addEventListener("click", async (e) => {
-  const t = e.target.dataset; const u = users.find((x) => x.uid === (t.uedit || t.ureset || t.upw || t.uact));
+  const t = e.target.dataset;
+  if (t.udevdel) {
+    const [uid, id] = t.udevdel.split("|"); const u = users.find((x) => x.uid === uid); if (!u) return;
+    if (!confirm(`ลบเครื่องนี้ออกจากบัญชี ${u.name}?\n${devText((u.devices || {})[id]) || id}`)) return;
+    try {
+      const left = (u.deviceIds || [u.deviceId]).filter((x) => x && x !== id);
+      await updateDoc(doc(db, "users", uid), { deviceIds: left, deviceId: left[0] || "", ["devices." + id]: deleteField() }); loadUsers();
+    } catch (err) { alert(errText(err)); }
+    return;
+  }
+  const u = users.find((x) => x.uid === (t.uedit || t.ureset || t.upw || t.uact || t.uunlock));
   if (!u) return;
   try {
     if (t.uedit) {
@@ -297,7 +320,10 @@ $("tUsers").addEventListener("click", async (e) => {
       $("uFormTitle").scrollIntoView({ behavior: "smooth" });
     } else if (t.ureset) {
       if (!confirm(`รีเซ็ตเครื่องของ ${u.name}? เครื่องถัดไปที่เข้าใช้งาน (มือถือ) จะถูกผูกอัตโนมัติ`)) return;
-      await updateDoc(doc(db, "users", u.uid), { deviceId: "", deviceIds: [] }); loadUsers();
+      await updateDoc(doc(db, "users", u.uid), { deviceId: "", deviceIds: [], devices: {} }); loadUsers();
+    } else if (t.uunlock) {
+      if (!confirm(`${u.name} ยังค้างสถานะ "เข้างาน" (ลืมกดออกงาน)\nปลดล็อกให้กดเข้างานได้เลย? (แนะนำให้พนักงานกดออกงานพร้อมหมายเหตุแทน ถ้ายังทำได้)`)) return;
+      await updateDoc(doc(db, "users", u.uid), { lastType: "out" }); loadUsers();
     } else if (t.upw) {
       await sendPasswordResetEmail(auth, u.email); alert(`ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่ ${u.email} แล้ว`);
     } else if (t.uact) {
@@ -315,13 +341,13 @@ async function loadDevices() {
     $("tDev").innerHTML = reqs.length
       ? `<tr><th>ชื่อ</th><th>อีเมล</th><th>ประเภทเครื่อง</th><th>เวลาขอ</th><th>รายละเอียดเครื่อง</th><th></th></tr>` +
         reqs.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.email)}</td><td>${r.mobile ? "มือถือ/แท็บเล็ต" : "<b>คอมพิวเตอร์</b>"}</td>
-          <td>${fmtDateTime(r.at && r.at.toDate())}</td><td class="wrap-txt muted">${esc((r.ua || "").slice(0, 120))}</td>
+          <td>${fmtDateTime(r.at && r.at.toDate())}</td><td class="wrap-txt">${r.info ? `<b>${esc(devText(r.info))}</b><br>` : ""}<span class="muted">${esc((r.ua || "").slice(0, 120))}</span></td>
           <td class="actions"><button class="btn sm primary" data-ok="${r.uid}">อนุมัติ</button><button class="btn sm danger" data-no="${r.uid}">ปฏิเสธ</button></td></tr>`).join("")
       : `<tr><td class="muted">ไม่มีคำขอ</td></tr>`;
     $("tDev").onclick = async (e) => {
       const ok = e.target.dataset.ok, no = e.target.dataset.no;
       try {
-        if (ok) { const r = reqs.find((x) => x.uid === ok); await updateDoc(doc(db, "users", ok), { deviceId: r.deviceId, deviceIds: [r.deviceId] }); await deleteDoc(doc(db, "deviceRequests", ok)); }
+        if (ok) { const r = reqs.find((x) => x.uid === ok); await updateDoc(doc(db, "users", ok), { deviceId: r.deviceId, deviceIds: [r.deviceId], devices: r.info ? { [r.deviceId]: { ...r.info, at: serverTimestamp() } } : {} }); await deleteDoc(doc(db, "deviceRequests", ok)); }
         if (no) await deleteDoc(doc(db, "deviceRequests", no));
         if (ok || no) { loadDevices(); loadUsers(); }
       } catch (err) { alert(errText(err)); }
@@ -356,16 +382,21 @@ async function fetchCheckins(start, end) {
   }
   return docs.map((d) => ({ id: d.id, ...d.data(), t: d.data().ts ? d.data().ts.toDate() : null })).filter((r) => r.t && r.t >= start && r.t < end);
 }
-function filtered() {
-  const br = $("rBranch").value, ty = $("rType").value, s = $("rSearch").value.trim().toLowerCase(), z = isRM() ? $("rZone").value : "";
+// ตัวกรองประเภท (เข้า/ออก) ใช้กับ "ทุกรายการ" เท่านั้น — สรุปรายคนต้องเห็นทั้งเข้าและออก
+function filtered(withType = false) {
+  const br = $("rBranch").value, ty = withType ? $("rType").value : "", s = $("rSearch").value.trim().toLowerCase(), z = isRM() ? $("rZone").value : "";
   return reportRows.filter((r) => (!z || (r.zoneId || bZoneOf(r.branchId)) === z) && (!br || r.branchId === br) && (!ty || r.type === ty) && (!s || `${r.name} ${r.empId}`.toLowerCase().includes(s)));
 }
+let sumFilter = "all";
+const SUM_FILTERS = [["all", "ทั้งหมด"], ["noOut", "ยังไม่ออกงาน"], ["noIn", "ไม่มีเข้างาน"], ["complete", "ครบเข้า-ออก"], ["offsite", "นอกสถานที่"]];
+const sumOk = (g) => sumFilter === "all" || (sumFilter === "noOut" ? g.firstIn && !g.lastOut : sumFilter === "noIn" ? !g.firstIn : sumFilter === "complete" ? g.firstIn && g.lastOut : g.offsite);
 function summarize(rows) {
   const m = new Map();
   for (const r of rows) {
     const k = r.uid + "|" + r.day;
-    if (!m.has(k)) m.set(k, { day: r.day, name: r.name, empId: r.empId, position: r.position, branches: new Set(), firstIn: null, lastOut: null, count: 0 });
+    if (!m.has(k)) m.set(k, { day: r.day, name: r.name, empId: r.empId, position: r.position, branches: new Set(), firstIn: null, lastOut: null, count: 0, offsite: false, notes: [] });
     const g = m.get(k); g.count++; g.branches.add(r.branchName);
+    if (r.offsite) { g.offsite = true; if (r.note) g.notes.push(r.note); }
     if (r.type === "in" && r.t && (!g.firstIn || r.t < g.firstIn)) g.firstIn = r.t;
     if (r.type === "out" && r.t && (!g.lastOut || r.t > g.lastOut)) g.lastOut = r.t;
   }
@@ -374,9 +405,12 @@ function summarize(rows) {
     .sort((a, b) => b.day.localeCompare(a.day) || String(a.name).localeCompare(String(b.name), "th"));
 }
 function renderReport() {
-  const rows = filtered(), sum = summarize(rows);
+  const rows = filtered(), sumAll = summarize(rows), sum = sumAll.filter(sumOk), raw = filtered(true);
+  const sc = Object.fromEntries(SUM_FILTERS.map(([k]) => [k, 0]));
+  sumAll.forEach((g) => SUM_FILTERS.forEach(([k]) => { const keep = sumFilter; sumFilter = k; if (sumOk(g)) sc[k]++; sumFilter = keep; }));
+  $("rChips").innerHTML = SUM_FILTERS.map(([k, l]) => `<button type="button" data-f="${k}" class="${sumFilter === k ? "on" : ""}">${l} (${sc[k]})</button>`).join("");
   const people = new Set(rows.map((r) => r.uid)).size;
-  const noOut = sum.filter((s) => s.firstIn && !s.lastOut).length;
+  const noOut = sumAll.filter((s) => s.firstIn && !s.lastOut).length;
   $("rStats").innerHTML = `<div class="stat"><span class="muted">รายการทั้งหมด</span><b>${rows.length}</b></div>
     <div class="stat"><span class="muted">จำนวนคน</span><b>${people}</b></div>
     <div class="stat"><span class="muted">เข้างาน</span><b>${rows.filter((r) => r.type === "in").length}</b></div>
@@ -388,8 +422,11 @@ function renderReport() {
       <td>${s.firstIn ? fmtTime(s.firstIn) : `<span class="tag warn">ไม่มี</span>`}</td>
       <td>${s.lastOut ? fmtTime(s.lastOut) : `<span class="tag warn">ไม่มี</span>`}</td>
       <td>${s.hours != null ? s.hours.toFixed(2) : "-"}</td></tr>`).join("") || `<tr><td class="muted" colspan="7">ไม่มีข้อมูล</td></tr>`);
+  $("sumCards").innerHTML = sum.map((s) => `<div class="pcard"><div class="top"><b>${esc(s.name)}</b><span class="sub">${s.day}</span></div>
+    <div class="sub">${esc(s.branches)} · เข้า ${s.firstIn ? fmtTime(s.firstIn).slice(0, 5) : `<span class="tag warn">ไม่มี</span>`} · ออก ${s.lastOut ? fmtTime(s.lastOut).slice(0, 5) : `<span class="tag warn">ยังไม่ออก</span>`}${s.hours != null ? ` · ${s.hours.toFixed(1)} ชม.` : ""}</div>
+    ${s.offsite ? `<div class="sub"><span class="tag offsite">นอกสถานที่</span> ${esc(s.notes.join(" / "))}</div>` : ""}</div>`).join("") || `<p class="muted">ไม่มีข้อมูล</p>`;
   $("tRaw").innerHTML = `<tr><th>รูป</th><th>วัน-เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>สาขา</th><th>ระยะ</th><th>ท่า</th><th>หมายเหตุ</th><th>แผนที่</th></tr>` +
-    (rows.map((r) => `<tr>
+    (raw.map((r) => `<tr>
       <td>${r.photo ? `<img class="thumb" loading="lazy" src="${r.photo}" data-cap="${esc(r.name)} · ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">`
         : r.hasPhoto ? `<button class="btn sm" data-pid="${r.id}" data-cap="${esc(r.name)} · ท่า: ${esc(r.gesture)} · ${esc(fmtDateTime(r.t))}">📷 ดูรูป</button>` : `<span class="muted">-</span>`}</td>
       <td>${fmtDateTime(r.t)}</td><td>${esc(r.name)}</td>
@@ -407,6 +444,8 @@ $("tRaw").addEventListener("click", async (e) => {
 $("btnReport").onclick = runReport;
 ["rBranch", "rType", "rZone"].forEach((i) => $(i).addEventListener("change", renderReport));
 $("rSearch").addEventListener("input", renderReport);
+$("rChips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; sumFilter = b.dataset.f; renderReport(); });
+$("rZone").addEventListener("change", () => { if (todayRows.length) renderToday(); });
 
 function downloadCsv(name, header, rows) {
   const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -416,7 +455,7 @@ function downloadCsv(name, header, rows) {
   a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 $("btnCsvSum").onclick = () => {
-  const s = summarize(filtered());
+  const s = summarize(filtered()).filter(sumOk);
   downloadCsv(`${bkkDay()}_สรุปเข้าออกงาน_${$("rFrom").value}_${$("rTo").value}.csv`,
     ["วันที่", "ชื่อ", "รหัสพนักงาน", "ตำแหน่ง", "สาขา", "เข้างาน", "ออกงาน", "ชั่วโมง"],
     s.map((x) => [x.day, x.name, x.empId, x.position, x.branches, x.firstIn ? fmtTime(x.firstIn) : "", x.lastOut ? fmtTime(x.lastOut) : "", x.hours != null ? x.hours.toFixed(2) : ""]));
@@ -424,7 +463,7 @@ $("btnCsvSum").onclick = () => {
 $("btnCsvRaw").onclick = () => {
   downloadCsv(`${bkkDay()}_รายการเข้าออกงาน_${$("rFrom").value}_${$("rTo").value}.csv`,
     ["วันที่", "เวลา", "ชื่อ", "รหัสพนักงาน", "ประเภท", "รหัสสาขา", "สาขา", "ระยะจากสาขา(ม.)", "ความแม่นยำ GPS(ม.)", "ท่า", "นอกสถานที่", "หมายเหตุ", "lat", "lng"],
-    filtered().slice().reverse().map((r) => [r.day, fmtTime(r.t), r.name, r.empId, r.type === "in" ? "เข้างาน" : "ออกงาน", r.branchId, r.branchName, r.distance, r.accuracy, r.gesture, r.offsite ? "ใช่" : "", r.note || "", r.lat, r.lng]));
+    filtered(true).slice().reverse().map((r) => [r.day, fmtTime(r.t), r.name, r.empId, r.type === "in" ? "เข้างาน" : "ออกงาน", r.branchId, r.branchName, r.distance, r.accuracy, r.gesture, r.offsite ? "ใช่" : "", r.note || "", r.lat, r.lng]));
 };
 
 /* ================= ลบรูปเก่า ================= */
@@ -561,72 +600,85 @@ $("btnSSave").onclick = async () => {
 
 /* ================= ตารางกะ: มาสาย / ขาด ================= */
 let att = { sums: [], days: [] };
+// โหลดตารางกะ + รายการที่แก้/สลับ ของเดือน แล้วรวมกัน
+async function loadShiftDocs(month) {
+  const qz = (c) => isRM() ? query(collection(db, c), where("month", "==", month)) : query(collection(db, c), where("month", "==", month), where("zoneId", "==", me.zoneId));
+  const [sh, ov] = await Promise.all([getDocs(qz("shifts")), getDocs(qz("shiftOverrides")).catch(() => ({ docs: [] }))]);
+  const ovMap = new Map(ov.docs.map((d) => [d.id, d.data()]));
+  return sh.docs.map((d) => { const s = d.data(); const o = ovMap.get(d.id); return { key: d.id, ...s, days: mergeDays(s, o), edited: o ? Object.keys(o.days || {}) : [] }; });
+}
+// คำนวณสถานะรายวันตามกะ ช่วง fromDay..toDay
+async function attendanceCore(month, fromDay, toDay) {
+  const start = new Date(new Date(`${fromDay}T00:00:00+07:00`).getTime() - 6 * 3600000);
+  const end = new Date(new Date(`${toDay}T00:00:00+07:00`).getTime() + 2 * 86400000);
+  const [shiftDocs, ckRows] = await Promise.all([loadShiftDocs(month), fetchCheckins(start, end)]);
+  const uidByPhone = new Map(users.filter((u) => u.phoneKey).map((u) => [u.phoneKey, u.uid]));
+  const byUid = new Map();
+  ckRows.forEach((r) => { (byUid.get(r.uid) || byUid.set(r.uid, []).get(r.uid)).push(r); });
+  const now = new Date(), sums = [], days = [];
+  for (const s of shiftDocs) {
+    const uid = uidByPhone.get(s.phoneKey), list = uid ? byUid.get(uid) || [] : [];
+    const sum = { key: s.key, name: s.name, nickname: s.nickname, branchId: s.branchId, zoneId: s.zoneId || bZoneOf(s.branchId), store: s.store, phone: s.phone, hasAccount: !!uid,
+      work: 0, present: 0, offsite: 0, late: 0, lateMin: 0, early: 0, earlyMin: 0, absent: 0, noOut: 0, off: 0, leave: 0, offWork: 0 };
+    for (const day of Object.keys(s.days || {}).sort()) {
+      if (day < fromDay || day > toDay) continue;
+      const code = s.days[day], info = shiftInfo(code);
+      const dayRecs = list.filter((c) => c.day === day);
+      const dayIns = dayRecs.filter((c) => c.type === "in").map((c) => c.t).sort((a, b) => a - b);
+      const offRecs = dayRecs.filter((c) => c.offsite);
+      const row = { key: s.key, phoneKey: s.phoneKey, day, name: s.name, nickname: s.nickname, store: s.store, branchId: s.branchId, zoneId: sum.zoneId,
+        code, edited: s.edited.includes(day), sched: "", in: dayIns[0] || null, out: null, status: "", kind: "", issue: false, state: "" };
+      if (!info) { row.status = "รหัสกะไม่รู้จัก"; row.kind = "warn"; row.issue = true; row.state = "other"; }
+      else if (info.off) {
+        if (info.off === "วันหยุด") sum.off++; else sum.leave++;
+        row.status = info.off; row.state = "off";
+        if (dayIns.length) { row.status += " (แต่มีเช็กอิน)"; row.kind = "warn"; row.issue = true; sum.offWork++; row.state = "in"; }
+      } else {
+        const w = shiftWindow(day, info);
+        row.sched = `${info.s}–${info.e}`;
+        const limit = new Date(w.e.getTime() + 6 * 3600000);
+        const from = row.in || new Date(w.s.getTime() - 4 * 3600000);
+        row.out = list.filter((c) => c.type === "out" && c.t > from && c.t < limit).map((c) => c.t).sort((a, b) => b - a)[0] || null;
+        if (now < w.s && !row.in) { row.status = "ยังไม่ถึงกะ"; row.state = "wait"; }
+        else {
+          sum.work++;
+          if (!uid) { row.status = "ยังไม่มีบัญชีในระบบ"; row.kind = "warn"; row.issue = true; row.state = "absent"; }
+          else if (!row.in) {
+            row.state = "absent";
+            if (now > w.e) { row.status = "ขาดงาน"; row.kind = "off"; row.issue = true; sum.absent++; }
+            else { row.status = "ยังไม่เช็กอิน"; row.kind = "warn"; row.issue = true; }
+          } else {
+            sum.present++;
+            row.state = row.out ? "done" : "in";
+            const parts = [], late = Math.round((row.in - w.s) / 60000);
+            row.late = late > LATE_GRACE_MIN;
+            if (row.late) { parts.push(`สาย ${late} นาที`); sum.late++; sum.lateMin += late; }
+            if (row.out) { const early = Math.round((w.e - row.out) / 60000); if (early > 0) { parts.push(`ออกก่อน ${early} นาที`); sum.early++; sum.earlyMin += early; } }
+            else if (now > limit) { parts.push("ไม่ลงออกงาน"); sum.noOut++; }
+            if (offRecs.length) { sum.offsite++; row.offsite = true; parts.push("นอกสถานที่/นอกพื้นที่: " + offRecs.map((c) => c.note).filter(Boolean).join(" / ")); }
+            row.status = parts.join(" · ") || "ปกติ"; row.kind = offRecs.length ? "offsite" : parts.length ? "warn" : "in"; row.issue = parts.length > 0;
+          }
+        }
+      }
+      days.push(row);
+    }
+    sums.push(sum);
+  }
+  sums.sort((a, b) => String(a.store).localeCompare(String(b.store), "th") || String(a.name).localeCompare(String(b.name), "th"));
+  days.sort((a, b) => b.day.localeCompare(a.day) || String(a.store).localeCompare(String(b.store), "th"));
+  return { sums, days, empty: !shiftDocs.length };
+}
 async function runAtt() {
   const month = $("aMonth").value;
   if (!month) return msg("aMsg", "เลือกเดือน");
   busy($("btnAtt"), true, "กำลังคำนวณ...");
   try {
-    const startDay = $("aStart").value || "";
     const [y, mo] = month.split("-").map(Number);
-    const start = new Date(`${month}-01T00:00:00+07:00`);
-    const end = new Date(Date.UTC(y, mo, 1) - 7 * 3600000 + 86400000); // +1 วันเผื่อกะข้ามคืน
-    const [shSnap, ckRows] = await Promise.all([
-      getDocs(isRM() ? query(collection(db, "shifts"), where("month", "==", month)) : query(collection(db, "shifts"), where("month", "==", month), where("zoneId", "==", me.zoneId))),
-      fetchCheckins(start, end)
-    ]);
-    if (shSnap.empty) { att = { sums: [], days: [] }; renderAtt(); return msg("aMsg", `ยังไม่มีตารางกะเดือน ${month} — อัปโหลดไฟล์ที่ด้านล่าง`); }
-    const uidByPhone = new Map(users.filter((u) => u.phoneKey).map((u) => [u.phoneKey, u.uid]));
-    const byUid = new Map();
-    ckRows.forEach((r) => { (byUid.get(r.uid) || byUid.set(r.uid, []).get(r.uid)).push(r); });
-    const now = new Date(), sums = [], days = [];
-    for (const sd of shSnap.docs) {
-      const s = sd.data(), uid = uidByPhone.get(s.phoneKey), list = uid ? byUid.get(uid) || [] : [];
-      const sum = { name: s.name, nickname: s.nickname, branchId: s.branchId, zoneId: s.zoneId || bZoneOf(s.branchId), store: s.store, phone: s.phone, hasAccount: !!uid,
-        work: 0, present: 0, offsite: 0, late: 0, lateMin: 0, early: 0, earlyMin: 0, absent: 0, noOut: 0, off: 0, leave: 0, offWork: 0 };
-      for (const day of Object.keys(s.days || {}).sort()) {
-        if (!day.startsWith(month) || (startDay && day < startDay)) continue;
-        const code = s.days[day], info = shiftInfo(code);
-        const dayRecs = list.filter((c) => c.day === day);
-        const dayIns = dayRecs.filter((c) => c.type === "in").map((c) => c.t).sort((a, b) => a - b);
-        const offRecs = dayRecs.filter((c) => c.offsite);
-        const row = { day, name: s.name, nickname: s.nickname, store: s.store, branchId: s.branchId, zoneId: sum.zoneId, code, sched: "", in: dayIns[0] || null, out: null, status: "", kind: "" , issue: false };
-        if (!info) { row.status = "รหัสกะไม่รู้จัก"; row.kind = "warn"; row.issue = true; }
-        else if (info.off) {
-          if (info.off === "วันหยุด") sum.off++; else sum.leave++;
-          row.status = info.off;
-          if (dayIns.length) { row.status += " (แต่มีเช็กอิน)"; row.kind = "warn"; row.issue = true; sum.offWork++; }
-        } else {
-          const w = shiftWindow(day, info);
-          row.sched = `${info.s}–${info.e}`;
-          if (now < w.s) { row.status = "ยังไม่ถึงกะ"; }
-          else {
-            sum.work++;
-            const limit = new Date(w.e.getTime() + 6 * 3600000);
-            const from = row.in || new Date(w.s.getTime() - 4 * 3600000);
-            row.out = list.filter((c) => c.type === "out" && c.t > from && c.t < limit).map((c) => c.t).sort((a, b) => b - a)[0] || null;
-            if (!uid) { row.status = "ยังไม่มีบัญชีในระบบ"; row.kind = "warn"; row.issue = true; }
-            else if (!row.in) {
-              if (now > w.e) { row.status = "ขาดงาน"; row.kind = "off"; row.issue = true; sum.absent++; }
-              else { row.status = "ยังไม่เช็กอิน"; row.kind = "warn"; row.issue = true; }
-            } else {
-              sum.present++;
-              const parts = [], late = Math.round((row.in - w.s) / 60000);
-              if (late > LATE_GRACE_MIN) { parts.push(`สาย ${late} นาที`); sum.late++; sum.lateMin += late; }
-              if (row.out) { const early = Math.round((w.e - row.out) / 60000); if (early > 0) { parts.push(`ออกก่อน ${early} นาที`); sum.early++; sum.earlyMin += early; } }
-              else if (now > limit) { parts.push("ไม่ลงออกงาน"); sum.noOut++; }
-              if (offRecs.length) { sum.offsite++; parts.push("นอกสถานที่: " + offRecs.map((c) => c.note).filter(Boolean).join(" / ")); }
-              row.status = parts.join(" · ") || "ปกติ"; row.kind = offRecs.length ? "offsite" : parts.length ? "warn" : "in"; row.issue = parts.length > 0;
-            }
-          }
-        }
-        days.push(row);
-      }
-      sums.push(sum);
-    }
-    sums.sort((a, b) => String(a.store).localeCompare(String(b.store), "th") || String(a.name).localeCompare(String(b.name), "th"));
-    days.sort((a, b) => b.day.localeCompare(a.day) || String(a.store).localeCompare(String(b.store), "th"));
-    att = { sums, days };
-    msg("aMsg", `คำนวณจากข้อมูลถึง ${fmtDateTime(now)}`, "ok");
+    const last = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+    const fromDay = $("aStart").value && $("aStart").value.startsWith(month) ? $("aStart").value : `${month}-01`;
+    const r = await attendanceCore(month, fromDay, last);
+    att = { sums: r.sums, days: r.days };
+    msg("aMsg", r.empty ? `ยังไม่มีตารางกะเดือน ${month} — อัปโหลดไฟล์ที่ด้านล่าง` : `คำนวณจากข้อมูลถึง ${fmtDateTime(new Date())}`, r.empty ? "err" : "ok");
     renderAtt();
   } catch (err) { msg("aMsg", errText(err)); }
   finally { busy($("btnAtt"), false); }
@@ -636,6 +688,7 @@ function attFiltered() {
   const ok = (r) => (!z || r.zoneId === z) && (!br || r.branchId === br) && (!s || `${r.name} ${r.nickname}`.toLowerCase().includes(s));
   return { sums: att.sums.filter(ok), days: att.days.filter(ok) };
 }
+const codeCell = (r) => `${esc(displayCode(r.code))}${r.edited ? ` <span class="tag offsite" title="แก้/สลับแล้ว">แก้</span>` : ""} <button class="btn sm" data-edit="${esc(r.key)}|${r.day}|${esc(r.phoneKey)}|${esc(r.zoneId)}" title="แก้กะวันนี้">✏️</button>`;
 function renderAtt() {
   const { sums, days } = attFiltered();
   const t = (k) => sums.reduce((a, x) => a + x[k], 0);
@@ -654,16 +707,95 @@ function renderAtt() {
       <td>${x.late ? `<span class="tag warn">${x.late} / ${x.lateMin}</span>` : "-"}</td><td>${x.absent ? `<span class="tag off">${x.absent}</span>` : "-"}</td>
       <td>${x.early || "-"}</td><td>${x.noOut || "-"}</td><td>${x.off}</td><td>${x.leave}</td>
       <td>${x.hasAccount ? `<span class="tag in">มี</span>` : `<span class="tag warn">ยังไม่มี</span>`}</td></tr>`).join("") || `<tr><td class="muted" colspan="13">ไม่มีข้อมูล</td></tr>`);
+  // การ์ดรายคน (มือถือ)
+  $("attCards").innerHTML = sums.map((x) => `<div class="pcard"><div class="top"><b>${esc(x.name)}${x.nickname ? ` (${esc(x.nickname)})` : ""}</b><span class="sub">${esc(x.store)}</span></div>
+    <div class="sub">มา ${x.present}/${x.work} วัน · ${x.late ? `<span class="tag warn">สาย ${x.late} ครั้ง ${x.lateMin} น.</span>` : "ไม่สาย"} ${x.absent ? `<span class="tag off">ขาด ${x.absent}</span>` : ""} ${x.noOut ? `<span class="tag warn">ไม่ลงออก ${x.noOut}</span>` : ""} ${x.offsite ? `<span class="tag offsite">นอกสถานที่ ${x.offsite}</span>` : ""}</div></div>`).join("") || `<p class="muted">ไม่มีข้อมูล</p>`;
   const showAll = $("aShow").value === "all";
   const rows = days.filter((r) => showAll || r.issue);
   $("tAttDay").innerHTML = `<tr><th>วันที่</th><th>สาขา</th><th>ชื่อ</th><th>กะ</th><th>เวลากะ</th><th>เข้างาน</th><th>ออกงาน</th><th>สถานะ</th></tr>` +
-    (rows.slice(0, 1500).map((r) => `<tr><td>${r.day}</td><td>${esc(r.store)}</td><td>${esc(r.name)}${r.nickname ? ` (${esc(r.nickname)})` : ""}</td><td>${esc(r.code)}</td><td>${r.sched || "-"}</td>
+    (rows.slice(0, 1500).map((r) => `<tr><td>${r.day}</td><td>${esc(r.store)}</td><td>${esc(r.name)}${r.nickname ? ` (${esc(r.nickname)})` : ""}</td><td>${codeCell(r)}</td><td>${r.sched || "-"}</td>
       <td>${r.in ? fmtTime(r.in) : "-"}</td><td>${r.out ? fmtTime(r.out) : "-"}</td><td>${r.kind ? `<span class="tag ${r.kind}">${esc(r.status)}</span>` : esc(r.status)}</td></tr>`).join("")
       || `<tr><td class="muted" colspan="8">${showAll ? "ไม่มีข้อมูล" : "ไม่มีรายการผิดปกติ"}</td></tr>`);
 }
 $("btnAtt").onclick = runAtt;
 ["aBranch", "aShow", "aZone"].forEach((i) => $(i).addEventListener("change", renderAtt));
+$("aMonth").addEventListener("change", runAtt);
 $("aSearch").addEventListener("input", renderAtt);
+
+/* ---------- แก้กะรายวัน (หัวหน้า) ---------- */
+async function setOverride(key, phoneKey, zoneId, day, code, by) {
+  await setDoc(doc(db, "shiftOverrides", key), { month: key.slice(0, 7), phoneKey, zoneId: zoneId || "", days: { [day]: code }, log: { [day]: { by, at: new Date().toISOString() } } }, { merge: true });
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-edit]"); if (!b) return;
+  const [key, day, pk, z] = b.dataset.edit.split("|");
+  const code = prompt(`แก้กะวันที่ ${day}\nใส่ชั่วโมงเข้างาน (เช่น 8, 9, 10, 13) หรือ H=หยุด, V=พักร้อน, T=อบรม, ลากิจ, ลาป่วย`);
+  if (code === null) return;
+  const c = normCode(code);
+  if (!shiftInfo(c)) return alert("รหัสไม่ถูกต้อง");
+  try { await setOverride(key, pk, z, day, c, me.name || "หัวหน้า"); runAtt(); if (!$("t-today").classList.contains("hidden")) runToday(); }
+  catch (err) { alert(errText(err)); }
+});
+
+/* ---------- คำขอสลับวันจากพนักงาน ---------- */
+let rqRows = [];
+async function loadShiftRequests() {
+  try {
+    const q = isRM() ? query(collection(db, "shiftRequests"), where("status", "==", "pending"))
+      : query(collection(db, "shiftRequests"), where("status", "==", "pending"), where("zoneId", "==", me.zoneId));
+    rqRows = (await getDocs(q)).docs.map((d) => ({ id: d.id, ...d.data() }));
+    $("rqBadge").textContent = rqRows.length; $("rqBadge").classList.toggle("hidden", !rqRows.length);
+    $("tShiftReq").innerHTML = rqRows.length ? `<tr><th>ชื่อ</th><th>ขอเปลี่ยน</th><th>เหตุผล</th><th>เวลาขอ</th><th></th></tr>` +
+      rqRows.map((r) => `<tr><td>${esc(r.name)}</td><td class="wrap-txt">${Object.keys(r.changes || {}).sort().map((d) => `${d}: ${esc(displayCode((r.from || {})[d] || "-"))} → <b>${esc(displayCode(r.changes[d]))}</b>`).join("<br>")}</td>
+        <td class="wrap-txt">${esc(r.reason)}</td><td>${fmtDateTime(r.at && r.at.toDate())}</td>
+        <td class="actions"><button class="btn sm primary" data-rqok="${r.id}">อนุมัติ</button><button class="btn sm danger" data-rqno="${r.id}">ไม่อนุมัติ</button></td></tr>`).join("")
+      : `<tr><td class="muted">ไม่มีคำขอรออนุมัติ</td></tr>`;
+  } catch (e) { $("tShiftReq").innerHTML = `<tr><td class="msg err">${esc(errText(e))}</td></tr>`; }
+}
+$("tShiftReq").addEventListener("click", async (e) => {
+  const ok = e.target.dataset.rqok, no = e.target.dataset.rqno; if (!ok && !no) return;
+  const r = rqRows.find((x) => x.id === (ok || no));
+  try {
+    if (ok) {
+      if (!r.phoneKey) throw new Error("พนักงานคนนี้ยังไม่มีเบอร์โทรในบัญชี จึงจับคู่ตารางกะไม่ได้");
+      const key = `${r.month}_${r.phoneKey}`;
+      for (const d of Object.keys(r.changes || {})) await setOverride(key, r.phoneKey, r.zoneId, d, r.changes[d], `อนุมัติคำขอ: ${me.name || ""}`);
+    }
+    await updateDoc(doc(db, "shiftRequests", r.id), { status: ok ? "approved" : "rejected", decidedBy: me.name || "", decidedAt: serverTimestamp() });
+    loadShiftRequests(); if (ok) runAtt();
+  } catch (err) { alert(errText(err)); }
+});
+
+/* ================= วันนี้ ================= */
+let todayRows = [], todayFilter = "all";
+async function runToday() {
+  const day = bkkDay();
+  $("tdDate").textContent = new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "full" }).format(new Date());
+  try {
+    const r = await attendanceCore(day.slice(0, 7), day, day);
+    todayRows = r.days.filter((x) => x.day === day);
+    $("tdMsg").textContent = r.empty ? "ยังไม่มีตารางกะเดือนนี้ — อัปโหลดที่แท็บ กะ & มาสาย/ขาด" : `อัปเดตล่าสุด ${fmtTime(new Date())}`;
+    renderToday();
+  } catch (e) { $("tdMsg").textContent = errText(e); }
+}
+function renderToday() {
+  const z = isRM() ? $("rZone").value : "";
+  const base = todayRows.filter((r) => !z || r.zoneId === z);
+  const cnt = { all: base.length, absent: 0, in: 0, done: 0, late: 0, offsite: 0, off: 0 };
+  base.forEach((r) => { if (cnt[r.state] !== undefined) cnt[r.state]++; if (r.late) cnt.late++; if (r.offsite) cnt.offsite++; });
+  const labels = [["all", "ทั้งหมด"], ["absent", "ยังไม่มา"], ["in", "ยังไม่ออกงาน"], ["done", "ออกงานแล้ว"], ["late", "มาสาย"], ["offsite", "นอกสถานที่"], ["off", "หยุด/ลา"]];
+  $("tdChips").innerHTML = labels.map(([k, l]) => `<button type="button" data-f="${k}" class="${todayFilter === k ? "on" : ""}">${l} (${cnt[k]})</button>`).join("");
+  const f = (r) => todayFilter === "all" || (todayFilter === "late" ? r.late : todayFilter === "offsite" ? r.offsite : r.state === todayFilter);
+  const rows = base.filter(f).sort((a, b) => String(a.store).localeCompare(String(b.store), "th"));
+  const stTag = { absent: ["off", "ยังไม่มา"], in: ["warn", "ยังไม่ออกงาน"], done: ["in", "ออกงานแล้ว"], off: ["", "หยุด/ลา"], wait: ["", "ยังไม่ถึงกะ"], other: ["warn", "ไม่ทราบกะ"] };
+  $("tdList").innerHTML = rows.map((r) => { const t = stTag[r.state] || ["", r.status];
+    return `<div class="pcard"><div class="top"><b>${esc(r.name)}${r.nickname ? ` (${esc(r.nickname)})` : ""}</b><span class="tag ${t[0]}">${t[1]}</span></div>
+      <div class="sub">${esc(r.store)} · ${esc(shiftLabel(r.code))} · เข้า ${r.in ? fmtTime(r.in).slice(0, 5) : "–"} · ออก ${r.out ? fmtTime(r.out).slice(0, 5) : "–"}</div>
+      ${r.issue && r.status ? `<div class="sub">${esc(r.status)}</div>` : ""}</div>`; }).join("") || `<p class="muted">ไม่มีรายการ</p>`;
+}
+$("tdChips").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; todayFilter = b.dataset.f; renderToday(); });
+$("btnTdReload").onclick = runToday;
+
 $("btnAttCsvSum").onclick = () => {
   const { sums } = attFiltered();
   downloadCsv(`${bkkDay()}_สรุปมาสายขาดงาน_${$("aMonth").value}.csv`,
@@ -674,7 +806,7 @@ $("btnAttCsvDay").onclick = () => {
   const { days } = attFiltered();
   downloadCsv(`${bkkDay()}_รายวันตามกะ_${$("aMonth").value}.csv`,
     ["วันที่", "สาขา", "ชื่อ", "ชื่อเล่น", "รหัสกะ", "เวลากะ", "เข้างาน", "ออกงาน", "สถานะ"],
-    days.slice().reverse().map((r) => [r.day, r.store, r.name, r.nickname, r.code, r.sched, r.in ? fmtTime(r.in) : "", r.out ? fmtTime(r.out) : "", r.status]));
+    days.slice().reverse().map((r) => [r.day, r.store, r.name, r.nickname, displayCode(r.code), r.sched, r.in ? fmtTime(r.in) : "", r.out ? fmtTime(r.out) : "", r.status]));
 };
 
 /* ================= เขต (RM) ================= */

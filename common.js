@@ -64,14 +64,14 @@ export function fmtDateLong(d = new Date()) {
 }
 
 export const GESTURES = [
-  { emoji: "✌️", text: "ชู 2 นิ้ว" },
-  { emoji: "👍", text: "ชูนิ้วโป้ง" },
-  { emoji: "👌", text: "ทำมือ OK" },
-  { emoji: "☝️", text: "ชู 1 นิ้ว" },
-  { emoji: "✋", text: "ชูฝ่ามือ 5 นิ้ว" },
-  { emoji: "🤟", text: "ชู 3 นิ้ว" },
-  { emoji: "🫶", text: "ทำมือรูปหัวใจ" },
-  { emoji: "✊", text: "กำมือชูขึ้น" }
+  { emoji: "✌🏻", text: "ชู 2 นิ้ว" },
+  { emoji: "👍🏻", text: "ชูนิ้วโป้ง" },
+  { emoji: "👌🏻", text: "ทำมือ OK" },
+  { emoji: "☝🏻", text: "ชู 1 นิ้ว" },
+  { emoji: "✋🏻", text: "ชูฝ่ามือ 5 นิ้ว" },
+  { emoji: "🤟🏻", text: "ชู 3 นิ้ว" },
+  { emoji: "🫶🏻", text: "ทำมือรูปหัวใจ" },
+  { emoji: "✊🏻", text: "กำมือชูขึ้น" }
 ];
 
 export function errText(e) {
@@ -103,27 +103,46 @@ export function busy(btn, on, label) {
   else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
 }
 
-/* ---------- ตารางกะ ---------- */
-export const LATE_GRACE_MIN = 20; // อนุโลมมาสาย (นาที)
-export const SHIFT_CODES = {
-  A: { s: "08:00", e: "17:00" }, B: { s: "04:30", e: "13:30" }, C: { s: "05:00", e: "14:00" },
-  D: { s: "05:30", e: "14:30" }, E: { s: "07:00", e: "16:00" }, F: { s: "08:00", e: "17:00" },
-  G: { s: "09:30", e: "18:30" }, I: { s: "10:30", e: "19:30" }, J: { s: "11:00", e: "20:00" },
-  K: { s: "12:00", e: "21:00" }, W: { s: "12:00", e: "21:00" }, L: { s: "13:00", e: "22:00" },
-  M: { s: "21:00", e: "06:00" }, N: { s: "15:00", e: "24:00" }, O1: { s: "08:00", e: "17:00", note: "เปิดเซฟ" },
-  H: { off: "วันหยุด" }, V: { off: "พักร้อน" }, T: { off: "Training" }, MT: { off: "อบรม" },
-  "ลากิจ": { off: "ลากิจ" }, "ลาป่วย": { off: "ลาป่วย" }, "ลาคลอด": { off: "ลาคลอด" }
-};
+/* ---------- ตารางกะ ----------
+   ใช้ "ชั่วโมงเข้างาน" เป็นรหัสกะ เช่น 8 = 08:00–17:00, 9 = 09:00–18:00 (ทำงาน 9 ชม. รวมพัก 1 ชม.)
+   รหัสตัวอักษรเดิมในไฟล์ Excel แปลงเป็นชั่วโมงให้อัตโนมัติ (เวลา .30 ปัดเป็น .00 ตามเวลาเข้างานจริง) */
+export const LATE_GRACE_MIN = 20;   // อนุโลมมาสาย (นาที)
+export const SHIFT_HOURS = 9;       // ความยาวกะ (ชม.)
+export const LETTER_TO_HOUR = { A: 8, B: 4, C: 5, D: 5, E: 7, F: 8, G: 9, I: 10, J: 11, K: 12, W: 12, L: 13, M: 21, N: 15, O1: 8 };
+export const OFF_CODES = { H: "วันหยุด", V: "พักร้อน", T: "อบรม", MT: "อบรม", "ลากิจ": "ลากิจ", "ลาป่วย": "ลาป่วย", "ลาคลอด": "ลาคลอด" };
+export const SHIFT_CHOICES = ["5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "21", "H", "V", "T", "ลากิจ", "ลาป่วย"];
 export function normCode(v) {
   const s = String(v ?? "").trim();
   return /^[a-z0-9]+$/i.test(s) ? s.toUpperCase() : s;
 }
-export function shiftInfo(code) { return SHIFT_CODES[normCode(code)] || null; }
+const hh = (h) => String(h % 24).padStart(2, "0") + ":00";
+export function shiftHour(code) {
+  const c = normCode(code);
+  if (/^\d{1,2}$/.test(c) && +c <= 23) return +c;
+  if (c in LETTER_TO_HOUR) return LETTER_TO_HOUR[c];
+  return null;
+}
+export function shiftInfo(code) {
+  const c = normCode(code);
+  if (!c) return null;
+  if (c in OFF_CODES) return { off: OFF_CODES[c] };
+  const h = shiftHour(c);
+  if (h === null) return null;
+  const end = h + SHIFT_HOURS;
+  return { h, s: hh(h), e: end === 24 ? "24:00" : hh(end), note: c === "O1" ? "เปิดเซฟ" : "" };
+}
+// รหัสสำหรับแสดงผล: ตัวอักษรเดิม → ตัวเลขชั่วโมง
+export function displayCode(code) {
+  const c = normCode(code), i = shiftInfo(c);
+  if (!c) return "-";
+  if (!i) return c;
+  return i.off ? i.off : String(i.h);
+}
 export function shiftLabel(code) {
   const c = normCode(code), i = shiftInfo(c);
   if (!c) return "ไม่มีกะ";
   if (!i) return `รหัส ${c}`;
-  return i.off ? i.off : `กะ ${c} ${i.s}–${i.e}${i.note ? " (" + i.note + ")" : ""}`;
+  return i.off ? i.off : `กะ ${i.h} (${i.s}–${i.e})${i.note ? " · " + i.note : ""}`;
 }
 export function phoneKey(p) { const d = String(p ?? "").replace(/\D/g, ""); return d.length >= 9 ? d.slice(-9) : ""; }
 export function bkkTime(day, hhmm) {
@@ -134,4 +153,27 @@ export function shiftWindow(day, info) {
   const s = bkkTime(day, info.s); let e = bkkTime(day, info.e);
   if (e <= s) e = new Date(e.getTime() + 86400000);
   return { s, e };
+}
+// รวมตารางกะที่อัปโหลด + รายการที่แก้/สลับ
+export const mergeDays = (shiftDoc, overrideDoc) => ({ ...((shiftDoc && shiftDoc.days) || {}), ...((overrideDoc && overrideDoc.days) || {}) });
+
+/* ---------- ข้อมูลเครื่อง ---------- */
+export async function deviceInfo() {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  const iv = ua.match(/OS (\d+)[._](\d+)/), av = ua.match(/Android ([\d.]+)/);
+  const os = ios ? `iOS ${iv ? iv[1] + "." + iv[2] : ""}`.trim() : android ? `Android ${av ? av[1] : ""}`.trim()
+    : /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "macOS" : "อื่นๆ";
+  const standalone = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  const browser = /Edg/.test(ua) ? "Edge" : /CriOS|Chrome/.test(ua) ? "Chrome" : /FxiOS|Firefox/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "อื่นๆ";
+  let model = ios ? (/iPad/.test(ua) || !/iPhone/.test(ua) ? "iPad" : "iPhone") : android ? ((ua.match(/Android [\d.]+; ([^;)]+)/) || [])[1] || "Android") : "คอมพิวเตอร์";
+  try {
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+      const h = await navigator.userAgentData.getHighEntropyValues(["model"]);
+      if (h.model) model = h.model;
+    }
+  } catch (e) {}
+  if (model === "K") model = "Android";
+  return { os, model: String(model).slice(0, 40), browser, channel: standalone ? "ไอคอนหน้าจอโฮม" : browser };
 }
