@@ -305,11 +305,11 @@ $("btnFilter").onclick = () => {
 // ผิวดี (แนว Good Skin): ผิวเนียน ลดความเหลือง/หมอง ให้ผิวสว่างใสอมชมพูแบบธรรมชาติ แก้ม-ปากระเรื่อเล็กน้อย พื้นหลังไม่เปลี่ยน
 // target = ความสว่างผิวหน้าที่ต้องการ (ปรับแสงอัตโนมัติ ถ้าถ่ายในที่มืด/ย้อนแสง หน้าจะถูกยกให้สว่างถึงระดับนี้)
 // ขาวใส (แนว ขาวใสเนียน): หน้าสว่างใส ผิวขาวเนียน
-const BEAUTY_WHITE = { target: 172, sat: 1.18, base: 0.02, sr: 0.1, sg: 0.13, sb: 0.17, smooth: 0.65, lip: 0.35, lipC: [210, 90, 110], glow: 0.1, blush: 0.08, pink: 0.02, label: "ขาวใส" };
+const BEAUTY_WHITE = { target: 166, sat: 1.04, base: 0, sr: 0.04, sg: 0.06, sb: 0.08, smooth: 0.38, lip: 0.25, lipC: [205, 95, 115], glow: 0, blush: 0.05, pink: 0, label: "ขาวใส" };
 // ผิวดี (แนว Good Skin): ผิวใสอมชมพูแบบธรรมชาติ
-const BEAUTY = { target: 160, sat: 1.08, base: 0, sr: 0.07, sg: 0.12, sb: 0.19, smooth: 0.5, lip: 0.38, lipC: [205, 95, 115], glow: 0, blush: 0.1, pink: 0, label: "ผิวดี" };
+const BEAUTY = { target: 156, sat: 1.03, base: 0, sr: 0.04, sg: 0.07, sb: 0.11, smooth: 0.32, lip: 0.25, lipC: [205, 95, 115], glow: 0, blush: 0.06, pink: 0, label: "ผิวดี" };
 // ชมพูใส (แนว Elcee Beauty): ผิวขาวอมชมพู ฉ่ำโกลว์ แก้มระเรื่อ ปากแดงชมพูชัด
-const BEAUTY_PINK = { target: 168, sat: 1.12, base: 0.04, sr: 0.2, sg: 0.21, sb: 0.23, smooth: 0.75, lip: 0.6, lipC: [212, 50, 85], glow: 0.22, blush: 0.24, pink: 0.06, label: "ชมพูใส" };
+const BEAUTY_PINK = { target: 162, sat: 1.06, base: 0, sr: 0.08, sg: 0.08, sb: 0.1, smooth: 0.45, lip: 0.45, lipC: [212, 60, 90], glow: 0.08, blush: 0.15, pink: 0.03, label: "ชมพูใส" };
 const PRESETS = [null, BEAUTY_WHITE, BEAUTY, BEAUTY_PINK];
 const BEAUTY_NAMES = ["ปิด", ...PRESETS.slice(1).map((p) => p.label)];
 function setVidClass(v) { [1, 2, 3].forEach((k) => v.classList.toggle("bz" + k, beauty === k)); }
@@ -352,9 +352,9 @@ function beautify(ctx, W, H, P) {
       }
       const fy0 = n > 50 ? ys / n : 0;
       if (fy0 > 25 && fy0 < P.target) {
-        const gm = Math.max(0.55, Math.log(P.target / 255) / Math.log(fy0 / 255));
-        const lut = new Uint8ClampedArray(256);
-        for (let v = 0; v < 256; v++) lut[v] = Math.round(255 * Math.pow(v / 255, gm));
+        // เพิ่มแสงแบบ "เปิดรับแสง" (คูณ) — ส่วนมืด เช่น ผม/ตา ยังเข้มเหมือนเดิม ภาพไม่ฟุ้งเทา; ส่วนสว่างค่อย ๆ โค้งไม่ให้ขาวโพลน
+        const gain = Math.min(1.8, P.target / fy0), lut = new Uint8ClampedArray(256);
+        for (let v = 0; v < 256; v++) { const x = (v * gain) / 255; lut[v] = Math.round(255 * (x < 0.8 ? x : 0.8 + 0.2 * (1 - Math.exp(-(x - 0.8) / 0.2)))); }
         for (let i = 0; i < d.length; i += 4) { d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; }
       }
     }
@@ -373,7 +373,7 @@ function beautify(ctx, W, H, P) {
       const x = p % W, y = (p / W) | 0;
       if (x > W * 0.15 && x < W * 0.85 && y > H * 0.08 && y < H * 0.8) { const w2 = w * w; sx += x * w2; sy += y * w2; sxx += x * x * w2; syy += y * y * w2; scr += cr * w2; srg += (r - g) * w2; sly += Y * w2; sw += w2; }
     }
-    const mb = boxBlur(m, W, H, Math.max(3, Math.round(W / 60)));
+    const mb = boxBlur(m, W, H, Math.max(4, Math.round(W / 35))); // ขอบนุ่มมาก ไม่ให้หน้าดูลอยแยกจากคอ/หู
     // ตำแหน่งใบหน้าโดยประมาณ (จุดศูนย์กลางของผิว) สำหรับลงบลัชที่แก้ม
     const fx = sw ? sx / sw : W / 2, fy = sw ? sy / sw : H * 0.45;
     const fsx = sw ? Math.sqrt(Math.max(1, sxx / sw - fx * fx)) : W * 0.15, fsy = sw ? Math.sqrt(Math.max(1, syy / sw - fy * fy)) : H * 0.15;
@@ -406,7 +406,7 @@ function beautify(ctx, W, H, P) {
     for (let p = 0; p < N; p++) {
       const i = p * 4, j = p * 3, x = p % W, y = (p / W) | 0;
       let r = d[i], g = d[i + 1], b = d[i + 2];
-      const sk = Math.min(1, mb[j] * 1.6);
+      const sk = Math.min(1, mb[j] * 1.3);
       // ผิวเนียน: ผสมภาพเบลอ แต่ลดลงเมื่อเป็นขอบ (ตา คิ้ว ปาก) เพื่อให้หน้ายังคมชัด
       const diff = Math.abs(r - bl[j]) + Math.abs(g - bl[j + 1]) + Math.abs(b - bl[j + 2]);
       const w = P.smooth * sk * Math.max(0, 1 - diff / 45);
@@ -442,7 +442,7 @@ function beautify(ctx, W, H, P) {
 $("btnShoot").onclick = () => {
   const v = $("video");
   if (!v.videoWidth) return;
-  const W = 480, H = Math.round(W * (v.videoHeight / v.videoWidth));
+  const W = 640, H = Math.round(W * (v.videoHeight / v.videoWidth)); // ความละเอียดสูงขึ้น ภาพคมขึ้น
   const c = $("canvas"), ctx = c.getContext("2d");
   c.width = W; c.height = H;
   ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
@@ -450,11 +450,12 @@ $("btnShoot").onclick = () => {
   ctx.restore();
   if (beauty) beautify(ctx, W, H, PRESETS[beauty]);
   const b = curBranch();
-  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0, H - 56, W, 56);
-  ctx.fillStyle = "#fff"; ctx.font = "15px sans-serif";
-  ctx.fillText(`${profile.name || ""} · ${b ? b.name : ""}`, 10, H - 33);
-  ctx.fillText(`เข้างาน · ท่า: ${gesture.text} · ${new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`, 10, H - 12);
-  photo = c.toDataURL("image/jpeg", 0.6);
+  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0, H - 70, W, 70);
+  ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
+  ctx.fillText(`${profile.name || ""} · ${b ? b.name : ""}`, 14, H - 42);
+  ctx.fillText(`เข้างาน · ท่า: ${gesture.text} · ${new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`, 14, H - 14);
+  photo = c.toDataURL("image/jpeg", 0.75);
+  if (photo.length > 280000) photo = c.toDataURL("image/jpeg", 0.55); // ไม่เกินขนาดที่ฐานข้อมูลรับได้
   stopCam();
   $("shot").src = photo; $("shot").classList.remove("hidden");
   $("btnShoot").classList.add("hidden"); $("btnRetake").classList.remove("hidden");
