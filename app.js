@@ -15,7 +15,7 @@ const MAX_DEVICES = 2;
 const NOTE_MIN = 10;
 let me = null, profile = null, branches = [], type = "in", lockedType = null;
 let pos = null, watchId = null, inRange = false, dist = null;
-let stream = null, gesture = null, photo = null, todayCode = "", beauty = 2;
+let stream = null, gesture = null, photo = null, todayCode = "", beauty = 1;
 let monthDays = {};   // กะของเดือนนี้ (รวมรายการที่สลับแล้ว)
 
 /* ---------- เริ่มต้น ---------- */
@@ -273,9 +273,10 @@ $("btnFilter").onclick = () => {
 };
 /* ---------- ฟิลเตอร์หน้าสวย (ทำงานบนพิกเซล ใช้ได้ทั้ง iPhone/Android) ----------
    1) ผิวสว่าง-ขาวอมชมพูขึ้น  2) ผิวเนียน (เบลอเฉพาะผิว ไม่เบลอขอบตา/คิ้ว/ปาก)  3) เติมสีปากระเรื่อเล็กน้อย */
-const BEAUTY = { bright: 0.13, smooth: 0.65, lip: 0.42, lipC: [220, 80, 110], glow: 0, blush: 0, pink: 0, label: "ธรรมชาติ" };
+// ผิวดี (แนว Good Skin): ผิวเนียน ลดความเหลือง/หมอง ให้ผิวสว่างใสอมชมพูแบบธรรมชาติ แก้ม-ปากระเรื่อเล็กน้อย พื้นหลังไม่เปลี่ยน
+const BEAUTY = { base: 0, sr: 0.07, sg: 0.12, sb: 0.19, smooth: 0.5, lip: 0.38, lipC: [205, 95, 115], glow: 0, blush: 0.1, pink: 0, label: "ผิวดี" };
 // โทนชมพูใส (แนว Elcee Beauty): ผิวขาวอมชมพู ฉ่ำโกลว์ แก้มระเรื่อ ปากแดงชมพูชัด
-const BEAUTY_PINK = { bright: 0.2, smooth: 0.75, lip: 0.7, lipC: [214, 38, 78], glow: 0.22, blush: 0.24, pink: 0.06, label: "ชมพูใส" };
+const BEAUTY_PINK = { base: 0.04, sr: 0.2, sg: 0.21, sb: 0.23, smooth: 0.75, lip: 0.6, lipC: [212, 50, 85], glow: 0.22, blush: 0.24, pink: 0.06, label: "ชมพูใส" };
 const BEAUTY_NAMES = ["ปิด", BEAUTY.label, BEAUTY_PINK.label];
 function showBeauty() {
   $("btnFilter").textContent = `✨ ฟิลเตอร์หน้าสวย: ${BEAUTY_NAMES[beauty]} (กดเพื่อเปลี่ยน)`;
@@ -310,7 +311,7 @@ function beautify(ctx, W, H, P) {
     const glow = P.glow ? boxBlur(d, W, H, Math.round(W / 25)) : null;
     // หน้ากากผิวแบบนุ่ม (0–1) แล้วเบลอหน้ากาก เพื่อไม่ให้เป็นด่าง ๆ ตรงผม/ขอบ
     const m = new Float32Array(N * 4), CR = new Float32Array(N), LY = new Float32Array(N);
-    let sx = 0, sy = 0, sw = 0, sxx = 0, syy = 0, scr = 0, srg = 0;
+    let sx = 0, sy = 0, sw = 0, sxx = 0, syy = 0, scr = 0, srg = 0, sly = 0;
     for (let p = 0; p < N; p++) {
       const i = p * 4, r = d[i], g = d[i + 1], b = d[i + 2];
       const Y = 0.299 * r + 0.587 * g + 0.114 * b, cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b, cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
@@ -319,27 +320,37 @@ function beautify(ctx, W, H, P) {
       const w = Math.exp(-dc / 2) * Math.min(1, Math.max(0, (Y - 70) / 50));
       m[i] = w;
       const x = p % W, y = (p / W) | 0;
-      if (x > W * 0.15 && x < W * 0.85 && y > H * 0.08 && y < H * 0.8) { const w2 = w * w; sx += x * w2; sy += y * w2; sxx += x * x * w2; syy += y * y * w2; scr += cr * w2; srg += (r - g) * w2; sw += w2; }
+      if (x > W * 0.15 && x < W * 0.85 && y > H * 0.08 && y < H * 0.8) { const w2 = w * w; sx += x * w2; sy += y * w2; sxx += x * x * w2; syy += y * y * w2; scr += cr * w2; srg += (r - g) * w2; sly += Y * w2; sw += w2; }
     }
     const mb = boxBlur(m, W, H, Math.max(3, Math.round(W / 60)));
     // ตำแหน่งใบหน้าโดยประมาณ (จุดศูนย์กลางของผิว) สำหรับลงบลัชที่แก้ม
     const fx = sw ? sx / sw : W / 2, fy = sw ? sy / sw : H * 0.45;
     const fsx = sw ? Math.sqrt(Math.max(1, sxx / sw - fx * fx)) : W * 0.15, fsy = sw ? Math.sqrt(Math.max(1, syy / sw - fy * fy)) : H * 0.15;
-    const skinCr = sw ? scr / sw : 148, skinRG = sw ? srg / sw : 35, fr = fsx * 0.72;
-    const cheeks = [[fx - fsx, fy + fsy * 0.4], [fx + fsx, fy + fsy * 0.4]];
-    const mx = fx, my = fy + fsy * 0.85, mrx = fsx * 0.75, mry = fsy * 0.4; // บริเวณปากโดยประมาณ
+    const skinCr = sw ? scr / sw : 148, skinRG = sw ? srg / sw : 35, skinY = sw ? sly / sw : 150, fr = fsx * 0.6;
+    // หาแนวปาก: แถวที่ "แดงกว่าผิว และเข้มกว่าผิว" มากที่สุด ในครึ่งล่างของใบหน้า (กันไม่ให้ไปลงที่จมูก)
+    const lipScore = (p) => { const i = p * 4; if (LY[p] > skinY - 10 || LY[p] < 30) return 0; return Math.max(0, (CR[p] - skinCr) + 0.4 * ((d[i] - d[i + 1]) - skinRG)); };
+    let my = -1, best = 0;
+    { const ya = Math.round(fy + fsy * 0.2), yb = Math.min(H - 3, Math.round(fy + fsy * 2.2)), xa = Math.max(0, Math.round(fx - fsx * 0.5)), xb = Math.min(W - 1, Math.round(fx + fsx * 0.5));
+      const prof = [];
+      for (let y = ya; y <= yb; y++) { let a = 0; for (let x = xa; x <= xb; x++) a += lipScore(y * W + x); prof.push(a / (xb - xa + 1)); }
+      for (let k = 2; k < prof.length - 2; k++) { const v = prof[k - 2] + prof[k - 1] + prof[k] + prof[k + 1] + prof[k + 2]; if (v > best) { best = v; my = ya + k; } } }
+    const hasLip = my > 0 && best > 5;
+    if (hasLip) my -= Math.round(fsy * 0.12); // เงาใต้ริมฝีปากมักเข้มสุด เลื่อนขึ้นมาที่กลางปาก
+    const mx = fx, mrx = fsx * 0.6, mry = fsy * 0.24; // บริเวณปาก
+    const cy = hasLip ? my - (my - fy) * 0.55 : fy + fsy * 0.4;
+    const cheeks = [[fx - fsx * 0.95, cy], [fx + fsx * 0.95, cy]];
     // หน้ากากปาก: แดงกว่าผิวของหน้า ภายในบริเวณปาก แล้วเบลอให้ขอบนุ่ม ตัดจุดเล็ก ๆ ทิ้ง
     let lb = null;
-    if (P.lip) {
+    if (P.lip && hasLip) {
       const L = new Float32Array(N * 4);
       const y0 = Math.max(0, Math.floor(my - mry)), y1 = Math.min(H - 1, Math.ceil(my + mry));
       for (let y = y0; y <= y1; y++) for (let x = Math.max(0, Math.floor(mx - mrx)); x <= Math.min(W - 1, Math.ceil(mx + mrx)); x++) {
         const p = y * W + x, i = p * 4, me = ((x - mx) / mrx) ** 2 + ((y - my) / mry) ** 2;
-        if (me >= 1 || LY[p] < 35 || LY[p] > 215) continue;
+        if (me >= 1 || LY[p] > skinY + 5 || LY[p] < 30) continue;
         const ls = (CR[p] - skinCr) + 0.4 * ((d[i] - d[i + 1]) - skinRG);
-        L[i] = Math.min(1, Math.max(0, (ls - 6) / 9)) * Math.min(1, (1 - me) * 3);
+        L[i] = Math.min(1, Math.max(0, (ls - 2) / 10)) * Math.min(1, (1 - me) * 3);
       }
-      lb = boxBlur(L, W, H, Math.max(2, Math.round(W / 140)));
+      lb = boxBlur(L, W, H, Math.max(3, Math.round(W / 90)));
     }
     for (let p = 0; p < N; p++) {
       const i = p * 4, j = p * 3, x = p % W, y = (p / W) | 0;
@@ -347,11 +358,10 @@ function beautify(ctx, W, H, P) {
       const sk = Math.min(1, mb[j] * 1.6);
       // ผิวเนียน: ผสมภาพเบลอ แต่ลดลงเมื่อเป็นขอบ (ตา คิ้ว ปาก) เพื่อให้หน้ายังคมชัด
       const diff = Math.abs(r - bl[j]) + Math.abs(g - bl[j + 1]) + Math.abs(b - bl[j + 2]);
-      const w = P.smooth * sk * Math.max(0, 1 - diff / 70);
+      const w = P.smooth * sk * Math.max(0, 1 - diff / 45);
       r += (bl[j] - r) * w; g += (bl[j + 1] - g) * w; b += (bl[j + 2] - b) * w;
       // ผิวสว่าง + ลดความเหลือง ให้ขาวอมชมพู (ส่วนอื่นสว่างขึ้นเล็กน้อย)
-      const k = 0.04 + P.bright * sk;
-      r += (255 - r) * k; g += (255 - g) * k * (1 + 0.06 * sk); b += (255 - b) * k * (1 + 0.15 * sk);
+      r += (255 - r) * (P.base + P.sr * sk); g += (255 - g) * (P.base + P.sg * sk); b += (255 - b) * (P.base + P.sb * sk);
       if (P.pink) { r += (255 - r) * P.pink * 0.6; g -= g * P.pink * 0.35; b += (230 - b) * P.pink * 0.25; }
       // บลัชแก้ม (เฉพาะบริเวณผิว)
       if (P.blush && sk > 0.2) {
