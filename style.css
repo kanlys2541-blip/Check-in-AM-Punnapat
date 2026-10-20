@@ -114,7 +114,7 @@ th{background:#f4f7fe;color:var(--brand-2)}
 .chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:.85rem;font-family:inherit;cursor:pointer;color:var(--brand-2)}
 .chips button.on,.chips button:active{background:var(--brand);color:#fff;border-color:var(--brand)}
 .seg button:disabled{opacity:.35;cursor:not-allowed}
-.cam video.beauty,.beauty-prev{filter:brightness(1.08) contrast(.94) saturate(1.06)}
+.cam video.beauty,.beauty-prev{filter:brightness(1.1) contrast(.93) saturate(1.08)}
 .stats.sm .stat b{font-size:1.2rem}
 .dev{font-size:.82rem;line-height:1.35;margin:2px 0}
 .dev b{color:var(--brand-2)}

@@ -271,6 +271,65 @@ $("btnFilter").onclick = () => {
   $("btnFilter").textContent = `✨ ฟิลเตอร์หน้าสวย: ${beauty ? "เปิด" : "ปิด"}`;
   $("video").classList.toggle("beauty", beauty);
 };
+/* ---------- ฟิลเตอร์หน้าสวย (ทำงานบนพิกเซล ใช้ได้ทั้ง iPhone/Android) ----------
+   1) ผิวสว่าง-ขาวอมชมพูขึ้น  2) ผิวเนียน (เบลอเฉพาะผิว ไม่เบลอขอบตา/คิ้ว/ปาก)  3) เติมสีปากระเรื่อเล็กน้อย */
+const BEAUTY = { bright: 0.13, smooth: 0.65, lip: 0.42 };
+function boxBlur(src, W, H, r) {
+  const tmp = new Float32Array(W * H * 3), out = new Float32Array(W * H * 3), n = 2 * r + 1;
+  for (let y = 0; y < H; y++) for (let c = 0; c < 3; c++) {
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += src[(y * W + Math.min(W - 1, Math.max(0, k))) * 4 + c];
+    for (let x = 0; x < W; x++) {
+      tmp[(y * W + x) * 3 + c] = acc / n;
+      acc += src[(y * W + Math.min(W - 1, x + r + 1)) * 4 + c] - src[(y * W + Math.max(0, x - r)) * 4 + c];
+    }
+  }
+  for (let x = 0; x < W; x++) for (let c = 0; c < 3; c++) {
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += tmp[(Math.min(H - 1, Math.max(0, k)) * W + x) * 3 + c];
+    for (let y = 0; y < H; y++) {
+      out[(y * W + x) * 3 + c] = acc / n;
+      acc += tmp[(Math.min(H - 1, y + r + 1) * W + x) * 3 + c] - tmp[(Math.max(0, y - r) * W + x) * 3 + c];
+    }
+  }
+  return out;
+}
+function beautify(ctx, W, H) {
+  try {
+    const img = ctx.getImageData(0, 0, W, H), d = img.data, N = W * H;
+    const bl = boxBlur(d, W, H, Math.max(2, Math.round(W / 120)));
+    // หน้ากากผิวแบบนุ่ม (0–1) แล้วเบลอหน้ากาก เพื่อไม่ให้เป็นด่าง ๆ ตรงผม/ขอบ
+    const m = new Float32Array(N * 4), CR = new Float32Array(N), LY = new Float32Array(N);
+    for (let p = 0; p < N; p++) {
+      const i = p * 4, r = d[i], g = d[i + 1], b = d[i + 2];
+      const Y = 0.299 * r + 0.587 * g + 0.114 * b, cb = 128 - 0.1687 * r - 0.3313 * g + 0.5 * b, cr = 128 + 0.5 * r - 0.4187 * g - 0.0813 * b;
+      CR[p] = cr; LY[p] = Y;
+      const dc = ((cb - 110) / 14) ** 2 + ((cr - 150) / 13) ** 2;
+      m[i] = Math.exp(-dc / 2) * Math.min(1, Math.max(0, (Y - 70) / 50));
+    }
+    const mb = boxBlur(m, W, H, Math.max(3, Math.round(W / 60)));
+    for (let p = 0; p < N; p++) {
+      const i = p * 4, j = p * 3, x = p % W, y = (p / W) | 0;
+      let r = d[i], g = d[i + 1], b = d[i + 2];
+      const sk = Math.min(1, mb[j] * 1.6);
+      // ผิวเนียน: ผสมภาพเบลอ แต่ลดลงเมื่อเป็นขอบ (ตา คิ้ว ปาก) เพื่อให้หน้ายังคมชัด
+      const diff = Math.abs(r - bl[j]) + Math.abs(g - bl[j + 1]) + Math.abs(b - bl[j + 2]);
+      const w = BEAUTY.smooth * sk * Math.max(0, 1 - diff / 70);
+      r += (bl[j] - r) * w; g += (bl[j + 1] - g) * w; b += (bl[j + 2] - b) * w;
+      // ผิวสว่าง + ลดความเหลือง ให้ขาวอมชมพู (ส่วนอื่นสว่างขึ้นเล็กน้อย)
+      const k = 0.04 + BEAUTY.bright * sk;
+      r += (255 - r) * k; g += (255 - g) * k * (1 + 0.06 * sk); b += (255 - b) * k * (1 + 0.15 * sk);
+      // เติมปาก: โทนแดง-ชมพูที่แดงกว่าผิว บริเวณกลางภาพ (ใบหน้า)
+      const cr = CR[p], Y = LY[p];
+      if (cr > 152 && Y > 50 && Y < 200 && d[i] > d[i + 1] + 35 && x > W * 0.2 && x < W * 0.8 && y > H * 0.25 && y < H * 0.85) {
+        const t = BEAUTY.lip * Math.min(1, (cr - 152) / 14);
+        r += (220 - r) * t; g += (80 - g) * t * 0.5; b += (110 - b) * t * 0.5;
+      }
+      d[i] = r; d[i + 1] = g; d[i + 2] = b;
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (e) { /* ถ้าเครื่องไม่รองรับ ใช้ภาพปกติ */ }
+}
 $("btnShoot").onclick = () => {
   const v = $("video");
   if (!v.videoWidth) return;
@@ -278,15 +337,9 @@ $("btnShoot").onclick = () => {
   const c = $("canvas"), ctx = c.getContext("2d");
   c.width = W; c.height = H;
   ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
-  if (beauty) {
-    // ฟิลเตอร์อ่อน: สว่างขึ้นเล็กน้อย + ผิวนุ่ม (ซ้อนภาพเบลอบางๆ) — ยังจำหน้าได้ชัด
-    ctx.filter = "brightness(1.08) contrast(0.94) saturate(1.06)";
-    ctx.drawImage(v, 0, 0, W, H);
-    ctx.globalAlpha = 0.28; ctx.filter = "blur(2px) brightness(1.1)";
-    ctx.drawImage(v, 0, 0, W, H);
-    ctx.globalAlpha = 1; ctx.filter = "none";
-  } else ctx.drawImage(v, 0, 0, W, H);
+  ctx.drawImage(v, 0, 0, W, H);
   ctx.restore();
+  if (beauty) beautify(ctx, W, H);
   const b = curBranch();
   ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0, H - 56, W, 56);
   ctx.fillStyle = "#fff"; ctx.font = "15px sans-serif";
