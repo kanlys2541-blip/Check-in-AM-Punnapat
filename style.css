@@ -126,3 +126,4 @@ th{background:#f4f7fe;color:var(--brand-2)}
 .plist{margin-top:4px}
 .dev .btn.sm{padding:1px 7px;margin-left:4px}
 .tag{white-space:nowrap;flex:0 0 auto}
+.cam video.beauty2{filter:brightness(1.14) contrast(.88) saturate(1.12) sepia(.06) hue-rotate(-8deg)}
