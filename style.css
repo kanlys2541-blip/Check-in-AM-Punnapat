@@ -114,7 +114,9 @@ th{background:#f4f7fe;color:var(--brand-2)}
 .chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:.85rem;font-family:inherit;cursor:pointer;color:var(--brand-2)}
 .chips button.on,.chips button:active{background:var(--brand);color:#fff;border-color:var(--brand)}
 .seg button:disabled{opacity:.35;cursor:not-allowed}
-.cam video.beauty,.beauty-prev{filter:brightness(1.1) contrast(.93) saturate(1.08)}
+.cam video.bz1{filter:brightness(1.25) contrast(.9) saturate(1.02)}
+.cam video.bz2{filter:brightness(1.1) contrast(.93) saturate(1.06)}
+.cam video.bz3{filter:brightness(1.18) contrast(.88) saturate(1.12) sepia(.06) hue-rotate(-8deg)}
 .stats.sm .stat b{font-size:1.2rem}
 .dev{font-size:.82rem;line-height:1.35;margin:2px 0}
 .dev b{color:var(--brand-2)}
@@ -126,7 +128,6 @@ th{background:#f4f7fe;color:var(--brand-2)}
 .plist{margin-top:4px}
 .dev .btn.sm{padding:1px 7px;margin-left:4px}
 .tag{white-space:nowrap;flex:0 0 auto}
-.cam video.beauty2{filter:brightness(1.14) contrast(.88) saturate(1.12) sepia(.06) hue-rotate(-8deg)}
 .demo{background:#FFF6D6;border:1px dashed var(--accent-2);border-radius:12px;padding:10px 12px;margin-bottom:12px;color:var(--brand-2)}
 .demo .row{max-width:220px}
 .okcard{max-height:92vh;overflow:auto}
