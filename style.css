@@ -131,4 +131,3 @@ th{background:#f4f7fe;color:var(--brand-2)}
 .demo{background:#FFF6D6;border:1px dashed var(--accent-2);border-radius:12px;padding:10px 12px;margin-bottom:12px;color:var(--brand-2)}
 .demo .row{max-width:220px}
 .okcard{max-height:92vh;overflow:auto}
-.cam img#shot{object-fit:contain;background:#0B2E7A}

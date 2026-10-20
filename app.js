@@ -442,7 +442,7 @@ function beautify(ctx, W, H, P) {
 $("btnShoot").onclick = () => {
   const v = $("video");
   if (!v.videoWidth) return;
-  const W = 640, H = Math.round(W * (v.videoHeight / v.videoWidth)); // ความละเอียดสูงขึ้น ภาพคมขึ้น
+  const W = 480, H = Math.round(W * (v.videoHeight / v.videoWidth));
   const c = $("canvas"), ctx = c.getContext("2d");
   c.width = W; c.height = H;
   ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
@@ -450,12 +450,11 @@ $("btnShoot").onclick = () => {
   ctx.restore();
   if (beauty) beautify(ctx, W, H, PRESETS[beauty]);
   const b = curBranch();
-  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0, H - 70, W, 70);
-  ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
-  ctx.fillText(`${profile.name || ""} · ${b ? b.name : ""}`, 14, H - 42);
-  ctx.fillText(`เข้างาน · ท่า: ${gesture.text} · ${new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`, 14, H - 14);
-  photo = c.toDataURL("image/jpeg", 0.75);
-  if (photo.length > 280000) photo = c.toDataURL("image/jpeg", 0.55); // ไม่เกินขนาดที่ฐานข้อมูลรับได้
+  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0, H - 56, W, 56);
+  ctx.fillStyle = "#fff"; ctx.font = "15px sans-serif";
+  ctx.fillText(`${profile.name || ""} · ${b ? b.name : ""}`, 10, H - 33);
+  ctx.fillText(`เข้างาน · ท่า: ${gesture.text} · ${new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`, 10, H - 12);
+  photo = c.toDataURL("image/jpeg", 0.6);
   stopCam();
   $("shot").src = photo; $("shot").classList.remove("hidden");
   $("btnShoot").classList.add("hidden"); $("btnRetake").classList.remove("hidden");
