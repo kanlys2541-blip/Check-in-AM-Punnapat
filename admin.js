@@ -672,7 +672,7 @@ $("fFile").onchange = async (e) => {
       let lat = r[2], lng = r[3];
       if ((lng == null || lng === "") && /,/.test(String(lat))) [lat, lng] = String(lat).split(",");
       lat = parseFloat(String(lat ?? "").trim()); lng = parseFloat(String(lng ?? "").trim());
-      const b = { id, name: cellStr(r[1]), lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, radius: parseFloat(cellStr(r[4])) || DEFAULT_RADIUS, active: truthy(r[5]), team: cellStr(r[6]), sample: SAMPLE.branches.includes(id) && /seacon/i.test(cellStr(r[1])) };
+      const b = { id, name: cellStr(r[1]), lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, radius: parseFloat(cellStr(r[4])) || DEFAULT_RADIUS, active: truthy(r[5]), team: cellStr(r[6]), sample: SAMPLE.branches.includes(id) && /^\s*13\.69412\s*,\s*100\.64817\s*$/.test(String(r[2] ?? "")) }; // แถวตัวอย่าง = พิกัดตัวอย่างเป๊ะ (สาขา 5001 จริงไม่ถูกข้าม)
       const exB = allBranches.find((x) => x.id === id);
       if (!b.sample && (b.lat == null || b.lng == null) && !(exB && typeof exB.lat === "number")) warn.push(`สาขา ${id} ${b.name}: ยังไม่มีพิกัด (เช็กอินที่สาขานี้ไม่ได้จนกว่าจะใส่)`);
       br.push(b);
@@ -681,7 +681,7 @@ $("fFile").onchange = async (e) => {
     const st = [], seen = new Set();
     sheetRows(wb, sS, XLSX).slice(1).forEach((r) => {
       const email = cellStr(r[0]).toLowerCase(), name = cellStr(r[1]); if (!email && !name) return;
-      const s = { email, name, position: cellStr(r[2]), branchId: (cellStr(r[3]).match(/\d{3,5}/) || [""])[0], active: truthy(r[4]), empId: cellStr(r[5]), sample: SAMPLE.emails.includes(email) };
+      const s = { email, name, position: cellStr(r[2]), branchId: (cellStr(r[3]).match(/\d{3,5}/) || [""])[0], active: truthy(r[4]), empId: cellStr(r[5]), sample: SAMPLE.emails.includes(email) && cellStr(r[5]) === "40012345" };
       if (s.sample) { st.push(s); return; }
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) warn.push(`${name || "(ไม่มีชื่อ)"}: อีเมลไม่ถูกต้อง — ข้าม`);
       else if (seen.has(email)) warn.push(`${email}: อีเมลซ้ำในไฟล์ — ใช้แถวแรก`);

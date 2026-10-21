@@ -29,4 +29,21 @@ export const TENANTS = {
 
   // ---------- วาง AM ใหม่ต่อจากบรรทัดนี้ ----------
 
+  // ---------- E2 · Pattarasiri S. ----------
+  "e2": {
+    name: "AM Check-In · Pattarasiri S.",
+    ownerEmail: "pattarasiri1612@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyB8_6KqzdCBn03k0Ng86yoclUj1l33jQZo",
+      authDomain: "checkin-e2.firebaseapp.com",
+      projectId: "checkin-e2",
+      storageBucket: "checkin-e2.firebasestorage.app",
+      messagingSenderId: "867526731219",
+      appId: "1:867526731219:web:e6edec9b02521bb633bb26"
+    }
+  },
+
+
 };
