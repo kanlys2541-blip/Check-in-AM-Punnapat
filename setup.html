@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เพิ่ม AM ใหม่ · AM Check-In</title>
+<link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<style>
+  pre{white-space:pre-wrap;word-break:break-all;background:#0B2E7A0d;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12.5px;max-height:320px;overflow:auto}
+  ol li{margin:6px 0}
+  .out h3{margin-top:18px}
+</style>
+</head>
+<body>
+<header class="bar"><div class="brand"><img src="icons/logo.svg" alt=""><span>เพิ่ม AM ใหม่</span></div></header>
+<main class="wrap">
+  <section class="card">
+    <h2>1. ข้อมูล AM</h2>
+    <p class="muted">หน้านี้ไม่บันทึกอะไร — สร้างข้อความให้คัดลอกไปวาง 2 ที่ (tenants.js และ Rules ใน Firebase)</p>
+    <label>อ่านจากแบบฟอร์มของ AM (ไม่บังคับ · เติมช่องด้านล่างให้อัตโนมัติ)<input id="form" type="file" accept=".xlsx,.xls"></label>
+    <label>รหัสเขต (ใช้ในลิงก์ · ใช้รหัสทีม เช่น e1, n2, s3)<input id="code" placeholder="เช่น e1"></label>
+    <label>ชื่อที่แสดงในระบบ<input id="name" placeholder="เช่น AM Check-In · East 2"></label>
+    <label>อีเมลผู้ดูแลของ AM คนนั้น (ใช้ล็อกอินหน้าผู้ดูแล)<input id="owner" type="email" placeholder="เช่น somchai.am@gmail.com"></label>
+    <label>firebaseConfig (วางทั้งก้อนจาก Firebase Console)<textarea id="cfg" rows="9" placeholder="const firebaseConfig = {&#10;  apiKey: &quot;…&quot;,&#10;  authDomain: &quot;…&quot;,&#10;  projectId: &quot;…&quot;,&#10;  …&#10;};"></textarea></label>
+    <div class="row" style="max-width:260px"><button id="go" class="btn primary">สร้างข้อความ</button></div>
+    <p class="msg" id="msg"></p>
+  </section>
+
+  <section class="card out hidden" id="out">
+    <h2>2. นำไปวาง</h2>
+    <h3>ก. วางต่อท้ายในไฟล์ <code>tenants.js</code> (ใต้บรรทัด "วาง AM ใหม่ต่อจากบรรทัดนี้")</h3>
+    <pre id="oTenant"></pre>
+    <div class="row" style="max-width:220px"><button class="btn sm" data-copy="oTenant">คัดลอก</button></div>
+
+    <h3>ข. Rules — วางใน Firebase ของ AM คนนั้น → Firestore Database → Rules → Publish</h3>
+    <pre id="oRules">กำลังโหลด…</pre>
+    <div class="row" style="max-width:220px"><button class="btn sm" data-copy="oRules">คัดลอก</button></div>
+
+    <h3>ค. ลิงก์ของ AM คนนี้</h3>
+    <p>พนักงาน: <code id="oStaff"></code><br>ผู้ดูแล: <code id="oAdmin"></code></p>
+
+    <h3>ง. เช็กลิสต์</h3>
+    <ol>
+      <li>Firebase ใหม่: เปิด <b>Authentication → Email/Password</b> และสร้าง <b>Firestore</b> (asia-southeast1)</li>
+      <li>Authentication → Users → <b>Add user</b> = อีเมลผู้ดูแลด้านบน + รหัสผ่านชั่วคราว</li>
+      <li>วาง Rules (ข้อ ข.) แล้วกด <b>Publish</b></li>
+      <li>วางบล็อก (ข้อ ก.) ใน <code>tenants.js</code> บน GitHub → Commit → รอ Actions เป็นสีเขียว</li>
+      <li>AM ล็อกอินหน้าผู้ดูแล → เพิ่มสาขา + พิกัด → เพิ่มพนักงาน → ส่งลิงก์พนักงาน</li>
+      <li>โอนสิทธิ์: Firebase → ⚙️ Project settings → <b>Users and permissions</b> → Add member = Gmail ของ AM สิทธิ์ <b>Owner</b> → เมื่อ AM รับแล้ว ลบบัญชีของเราออก</li>
+    </ol>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let rulesTpl = "";
+fetch("firestore.rules", { cache: "no-store" }).then((r) => r.ok ? r.text() : Promise.reject()).then((t) => (rulesTpl = t)).catch(() => (rulesTpl = ""));
+$("form").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    if (!window.XLSX) await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+    const n = wb.SheetNames.find((x) => x.includes("ข้อมูลAM")); if (!n) throw 0;
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "" });
+    const get = (k) => { const r = rows.find((x) => String(x[0]).includes(k)); return r ? String(r[1]).trim() : ""; };
+    const am = get("ชื่อ AM"), mail = get("อีเมล"), team = get("รหัสทีม");
+    if (team) $("code").value = team.toLowerCase();
+    if (am) $("name").value = `AM Check-In · ${am}`;
+    if (mail) $("owner").value = mail.toLowerCase();
+    $("msg").textContent = `อ่านแบบฟอร์มแล้ว: ${am || "-"} · ทีม ${team || "-"} · ${mail || "-"} — ตรวจแล้ววาง firebaseConfig ต่อ`; $("msg").className = "msg ok";
+  } catch (err) { $("msg").textContent = "อ่านแท็บ 0_ข้อมูลAM ไม่ได้ — กรอกเองด้านล่าง"; $("msg").className = "msg err"; }
+};
+function pick(src, key) { const m = src.match(new RegExp(key + "\\s*:\\s*[\"']([^\"']+)[\"']")); return m ? m[1] : ""; }
+$("go").onclick = () => {
+  const code = $("code").value.trim().toLowerCase(), name = $("name").value.trim() || "AM Check-In", owner = $("owner").value.trim().toLowerCase(), src = $("cfg").value;
+  const msg = (t) => { $("msg").textContent = t; $("msg").className = "msg err"; };
+  if (!/^[a-z0-9-]{2,20}$/.test(code)) return msg("รหัสเขตใช้ได้เฉพาะ a-z, 0-9, - (2–20 ตัว)");
+  if (code === "east" || code === "e4") return msg("รหัส east / e4 ใช้แล้ว (ระบบของ Punnapat)");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(owner)) return msg("กรอกอีเมลผู้ดูแลให้ถูกต้อง");
+  const keys = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"];
+  const cfg = Object.fromEntries(keys.map((k) => [k, pick(src, k)]));
+  const miss = keys.filter((k) => !cfg[k]);
+  if (miss.length) return msg("firebaseConfig ไม่ครบ: " + miss.join(", "));
+  $("msg").textContent = "";
+  const q = (v) => JSON.stringify(v);
+  $("oTenant").textContent = `  ${q(code)}: {
+    name: ${q(name)},
+    ownerEmail: ${q(owner)},
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+${keys.map((k) => `      ${k}: ${q(cfg[k])}`).join(",\n")}
+    }
+  },
+`;
+  $("oRules").textContent = rulesTpl
+    ? rulesTpl.replace(/function ownerEmail\(\) \{ return '[^']*'; \}/, `function ownerEmail() { return '${owner.replace(/'/g, "")}'; }`)
+    : "โหลดไฟล์ firestore.rules ไม่ได้ — ตรวจว่าอัปโหลดไฟล์นี้ขึ้น GitHub แล้ว";
+  const base = new URL("./", location.href).href;
+  $("oStaff").textContent = `${base}?am=${code}`;
+  $("oAdmin").textContent = `${base}admin.html?am=${code}`;
+  $("out").classList.remove("hidden");
+  $("out").scrollIntoView({ behavior: "smooth" });
+};
+document.addEventListener("click", async (e) => {
+  const id = e.target.dataset && e.target.dataset.copy; if (!id) return;
+  try { await navigator.clipboard.writeText($(id).textContent); e.target.textContent = "คัดลอกแล้ว ✓"; } catch { e.target.textContent = "เลือกข้อความแล้วคัดลอกเอง"; }
+});
+</script>
+</body>
+</html>

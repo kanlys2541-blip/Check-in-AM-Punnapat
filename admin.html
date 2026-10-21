@@ -67,6 +67,10 @@
           <button id="btnCsvSum" class="btn">Export สรุปรายคน (CSV)</button>
           <button id="btnCsvRaw" class="btn">Export ทุกรายการ (CSV)</button>
         </div>
+        <div class="row" style="max-width:520px">
+          <button class="btn js-xlsx">📊 ดาวน์โหลด Excel (ทุกแท็บ)</button>
+          <button class="btn js-gsheet">📗 ส่งเข้า Google Sheet</button>
+        </div>
         <p class="msg" id="rMsg"></p>
       </div>
       <div class="stats" id="rStats"></div>
@@ -94,6 +98,10 @@
           <button id="btnAttCsvSum" class="btn">Export สรุปรายคน</button>
           <button id="btnAttCsvDay" class="btn">Export รายวัน</button>
         </div>
+        <div class="row" style="max-width:520px">
+          <button class="btn js-xlsx">📊 ดาวน์โหลด Excel (ทุกแท็บ)</button>
+          <button class="btn js-gsheet">📗 ส่งเข้า Google Sheet</button>
+        </div>
         <p class="muted">มาสาย = เช็กอินช้ากว่าเวลาเริ่มกะเกิน <b id="aGrace"></b> นาที · ขาดงาน = มีกะแต่ไม่มีการเช็กอินเข้างาน · จับคู่พนักงานกับตารางกะด้วยเบอร์โทร</p>
         <p class="msg" id="aMsg"></p>
       </div>
@@ -109,6 +117,8 @@
       <div class="card">
         <h3>อัปโหลดตารางกะ (Excel)</h3>
         <p class="muted">ใช้ไฟล์รูปแบบเดียวกับ "ตารางกะ_Oct 2026" (หัวตาราง Store / ชื่อ / นามสกุล / ชื่อเล่น / ตำแหน่ง / เบอร์โทร / วันที่) — อัปโหลดซ้ำได้ ระบบจะเขียนทับเดือนเดิม</p>
+        <p class="muted">หรือไฟล์แบบฟอร์ม (แท็บ <b>3_ตารางกะ</b>: รหัสพนักงาน · ชื่อ · วันที่ 1–31) — เลือกเดือนก่อนอัปโหลด</p>
+        <label style="max-width:240px">เดือนของตารางกะ (สำหรับแบบฟอร์ม)<input id="sMonth" type="month"></label>
         <input id="sFile" type="file" accept=".xlsx,.xls">
         <p class="msg" id="sMsg"></p>
         <div class="tbl-wrap"><table id="tShiftPrev"></table></div>
@@ -223,11 +233,28 @@
     <!-- ดูแลระบบ -->
     <div id="t-tools" class="hidden">
       <div class="card">
+        <h3>นำเข้าทีมจากแบบฟอร์ม (ครั้งแรก)</h3>
+        <p class="muted">ใช้ไฟล์ "แบบฟอร์มข้อมูลทีม_สำหรับAM.xlsx" — อ่านแท็บ 1_สาขา · 2_พนักงาน · 3_ตารางกะ แล้วสร้างสาขา บัญชีพนักงาน และตารางกะเดือนแรกให้ในครั้งเดียว (นำเข้าซ้ำได้: ข้ามอีเมลที่มีบัญชีแล้ว · สาขาและตารางกะเขียนทับ)</p>
+        <input id="fFile" type="file" accept=".xlsx,.xls">
+        <div id="fPrev"></div>
+        <div id="fGo" class="hidden">
+          <label style="max-width:320px">รหัสผ่านเริ่มต้น (ทั้งทีม · อย่างน้อย 6 ตัว · พนักงานต้องเปลี่ยนเองตอนเข้าครั้งแรก)<input id="fPw" placeholder="เช่น lotus2026"></label>
+          <div class="row" style="max-width:260px"><button id="btnFImport" class="btn primary">นำเข้าทั้งหมด</button></div>
+        </div>
+        <p class="msg" id="fMsg"></p>
+      </div>
+      <div class="card">
         <h3>ลบรูปเซลฟี่เก่า (ประหยัดพื้นที่ฐานข้อมูล)</h3>
         <p class="muted">ลบเฉพาะรูป ข้อมูลเวลาเข้า-ออกยังอยู่ครบ — แนะนำทำทุก 2–3 เดือน</p>
         <label style="max-width:240px">ลบรูปที่เก่ากว่า (วัน)<input id="pDays" type="number" value="90" min="7"></label>
         <div class="row" style="max-width:220px"><button id="btnPurge" class="btn danger">ลบรูปเก่า</button></div>
         <p class="msg" id="pMsg"></p>
+      </div>
+      <div class="card">
+        <h3>รีเซ็ตเครื่องของพนักงานทุกคน</h3>
+        <p class="muted">ใช้เมื่อย้ายลิงก์เว็บ (เช่น โอน repo เข้า Organization) — ลิงก์ใหม่ = เครื่องทุกเครื่องถูกนับเป็นเครื่องใหม่ · กดแล้วเครื่องแรกที่พนักงานเปิดจะผูกให้อัตโนมัติ ไม่ต้องรออนุมัติ</p>
+        <div class="row" style="max-width:260px"><button id="btnResetAll" class="btn danger">รีเซ็ตเครื่องทุกคน</button></div>
+        <p class="msg" id="raMsg"></p>
       </div>
       <div class="card">
         <h3>ลิงก์สำหรับพนักงาน</h3>

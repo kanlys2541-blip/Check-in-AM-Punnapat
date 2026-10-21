@@ -109,8 +109,8 @@ export function busy(btn, on, label) {
 export const LATE_GRACE_MIN = 20;   // อนุโลมมาสาย (นาที)
 export const SHIFT_HOURS = 9;       // ความยาวกะ (ชม.)
 export const LETTER_TO_HOUR = { A: 8, B: 4, C: 5, D: 5, E: 7, F: 8, G: 9, I: 10, J: 11, K: 12, W: 12, L: 13, M: 21, N: 15, O1: 8 };
-export const OFF_CODES = { H: "วันหยุด", V: "พักร้อน", T: "อบรม", MT: "อบรม", "ลากิจ": "ลากิจ", "ลาป่วย": "ลาป่วย", "ลาคลอด": "ลาคลอด" };
-export const SHIFT_CHOICES = ["5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "21", "H", "V", "T", "ลากิจ", "ลาป่วย"];
+export const OFF_CODES = { H: "วันหยุด", V: "พักร้อน", OL: "ลาอื่นๆ", T: "อบรม", MT: "อบรม", "ลากิจ": "ลากิจ", "ลาป่วย": "ลาป่วย", "ลาคลอด": "ลาคลอด" };
+export const SHIFT_CHOICES = ["5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "21", "H", "V", "OL", "T", "ลากิจ", "ลาป่วย"];
 export function normCode(v) {
   const s = String(v ?? "").trim();
   return /^[a-z0-9]+$/i.test(s) ? s.toUpperCase() : s;

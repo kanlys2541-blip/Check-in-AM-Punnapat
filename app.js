@@ -1,5 +1,7 @@
 import { auth, db, $, haversine, fmtDist, getDeviceId, isMobile, isInAppBrowser, bkkDay, fmtTime, fmtDateLong, GESTURES, errText, esc, busy,
   normCode, shiftInfo, shiftLabel, displayCode, shiftWindow, mergeDays, deviceInfo, LATE_GRACE_MIN, SHIFT_CHOICES } from "./common.js";
+import { TENANT_QS } from "./firebase-config.js";
+document.querySelectorAll('a[href="admin.html"]').forEach((a) => (a.href = "admin.html" + TENANT_QS));
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -141,7 +143,7 @@ async function enterMain() {
   $("mDate").textContent = fmtDateLong();
   const bs = await getDocs(collection(db, "branches"));
   branches = bs.docs.map((d) => ({ id: d.id, ...d.data() }))
-    .filter((b) => typeof b.lat === "number" && typeof b.lng === "number")
+    .filter((b) => b.active !== false && typeof b.lat === "number" && typeof b.lng === "number")
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "th"));
   const sel = $("mBranch");
   sel.innerHTML = branches.map((b) => `<option value="${esc(b.id)}">${esc(b.name)} (${esc(b.id)})</option>`).join("")

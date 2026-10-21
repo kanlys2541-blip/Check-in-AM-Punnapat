@@ -1,7 +1,7 @@
 import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN, displayCode, shiftLabel, mergeDays } from "./common.js";
-import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS } from "./firebase-config.js";
+import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS, TENANT_QS, GOOGLE_CLIENT_ID } from "./firebase-config.js";
 import * as CFG from "./firebase-config.js";
-const MULTI_ZONE = CFG.MULTI_ZONE !== false; // false = ใช้คนเดียว ไม่แบ่งเขต
+const MULTI_ZONE = CFG.MULTI_ZONE === true; // false = ใช้คนเดียว ไม่แบ่งเขต
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, startAfter, writeBatch, Timestamp, serverTimestamp, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -58,14 +58,15 @@ onAuthStateChanged(auth, async (user) => {
     screen("scPanel");
     await loadZones();
     $("whoami").textContent = !MULTI_ZONE ? "ผู้ดูแล" : isRM() ? "RM / RL" : `AM · ${zName(me.zoneId)}`;
-    $("staffLink").textContent = new URL("./", location.href).href;
+    $("staffLink").textContent = new URL("./" + TENANT_QS, location.href).href;
+    $("lnkDemo").href = "./" + (TENANT_QS ? TENANT_QS + "&demo=1" : "?demo=1");
     await loadBranches();
     await loadUsers();
     if (isRM()) loadZones();
     loadDevices();
     const today = bkkDay();
     $("rFrom").value = today; $("rTo").value = today;
-    $("aMonth").value = today.slice(0, 7); $("aGrace").textContent = LATE_GRACE_MIN;
+    $("aMonth").value = today.slice(0, 7); $("sMonth").value = today.slice(0, 7); $("aGrace").textContent = LATE_GRACE_MIN;
     runToday(); loadShiftRequests();
   } catch (e) { screen("scLogin"); msg("liMsg", e && e.code === "permission-denied" ? "ล็อกอินได้แต่ฐานข้อมูลปฏิเสธการอ่าน — ตรวจว่าวาง Rules ล่าสุดใน Firebase และกด Publish แล้ว" : errText(e)); }
 });
@@ -236,7 +237,7 @@ async function createAuthUser(email, pw) {
 }
 async function addUser(d, pw) {
   const uid = await createAuthUser(d.email, pw);
-  await setDoc(doc(db, "users", uid), { ...d, active: true, mustChangePassword: true, deviceId: "", deviceIds: [], createdAt: serverTimestamp() });
+  await setDoc(doc(db, "users", uid), { ...d, active: d.active !== false, mustChangePassword: true, deviceId: "", deviceIds: [], createdAt: serverTimestamp() });
 }
 function resetUserForm() {
   editingUid = null;
@@ -248,6 +249,9 @@ $("btnUCancel").onclick = resetUserForm;
 $("btnUSave").onclick = async () => {
   const d = { name: $("uName").value.trim(), empId: $("uEmp").value.trim(), email: $("uEmail").value.trim().toLowerCase(), position: $("uPos").value.trim(), branchId: $("uBranch").value, role: $("uRole").value,
     phone: $("uPhone").value.trim(), phoneKey: phoneKey($("uPhone").value), nickname: $("uNick").value.trim() };
+  // พนักงานจากแบบฟอร์ม: จับคู่ตารางกะด้วยรหัสพนักงาน (ไม่ใช้เบอร์)
+  const old = editingUid && users.find((x) => x.uid === editingUid);
+  if ((old && String(old.phoneKey || "").startsWith("id")) || (!d.phoneKey && d.empId)) d.phoneKey = d.empId ? empKey(d.empId) : "";
   if (!d.name) return msg("uMsg", "กรอกชื่อ-นามสกุล");
   if (!isRM()) d.role = "staff";
   if (d.role === "rm") d.zoneId = "";
@@ -565,8 +569,16 @@ $("sFile").onchange = async (e) => {
   try {
     const XLSX = await loadXLSX();
     const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    parsedShift = parseShiftRows(XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }));
+    const formSheet = wb.SheetNames.find((n) => n.includes("ตารางกะ") && /^\d_/.test(n)) || (isFormShiftSheet(wb.Sheets[wb.SheetNames[0]], XLSX) ? wb.SheetNames[0] : null);
+    if (formSheet) {
+      const month = formMonth(wb, XLSX) || $("sMonth").value;
+      if (!month) throw new Error("ไฟล์แบบฟอร์ม: เลือก \"เดือนของตารางกะ\" ก่อนอัปโหลด");
+      $("sMonth").value = month;
+      parsedShift = { month, rows: parseFormShift(sheetRows(wb, formSheet, XLSX), month, []) };
+    } else {
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      parsedShift = parseShiftRows(XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }));
+    }
     const byPhone = new Map(users.filter((u) => u.phoneKey).map((u) => [u.phoneKey, u]));
     let matched = 0;
     $("tShiftPrev").innerHTML = `<tr><th>สาขา</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>เบอร์โทร</th><th>จำนวนวัน</th><th>บัญชีในระบบ</th><th>รหัสกะที่ไม่รู้จัก</th></tr>` +
@@ -574,11 +586,11 @@ $("sFile").onchange = async (e) => {
         const u = byPhone.get(r.phoneKey); if (u) matched++;
         const outZone = !isRM() && r.zoneId && r.zoneId !== me.zoneId;
         const unknown = [...new Set(Object.values(r.days).filter((c) => !shiftInfo(c)))];
-        return `<tr><td>${esc(r.store)}</td><td>${esc(r.name)}</td><td>${esc(r.nickname)}</td><td>${esc(r.phone)}</td><td>${Object.keys(r.days).length}</td>
+        return `<tr><td>${esc(r.store)}</td><td>${esc(r.name)}</td><td>${esc(r.nickname)}</td><td>${esc(r.phone || (r.empId ? "รหัส " + r.empId : ""))}</td><td>${Object.keys(r.days).length}</td>
           <td>${outZone ? `<span class="tag off">นอกเขตของคุณ — ข้าม</span>` : !r.phoneKey ? `<span class="tag off">ไม่มีเบอร์</span>` : u ? `<span class="tag in">${esc(u.email)}</span>` : `<span class="tag warn">ยังไม่มีบัญชี</span>`}</td>
           <td>${unknown.length ? `<span class="tag warn">${esc(unknown.join(", "))}</span>` : "-"}</td></tr>`;
       }).join("");
-    msg("sMsg", `เดือน ${parsedShift.month} · พนักงาน ${parsedShift.rows.length} คน · จับคู่บัญชีได้ ${matched} คน (คนที่ยังไม่มีบัญชี บันทึกกะไว้ก่อนได้ เพิ่มบัญชีทีหลังจะจับคู่ให้อัตโนมัติด้วยเบอร์โทร)`, "ok");
+    msg("sMsg", `เดือน ${parsedShift.month} · พนักงาน ${parsedShift.rows.length} คน · จับคู่บัญชีได้ ${matched} คน (คนที่ยังไม่มีบัญชี บันทึกกะไว้ก่อนได้ เพิ่มบัญชีทีหลังจะจับคู่ให้อัตโนมัติด้วยเบอร์โทร/รหัสพนักงาน)`, "ok");
     $("btnSSave").classList.remove("hidden");
   } catch (err) { msg("sMsg", errText(err)); }
 };
@@ -588,15 +600,159 @@ $("btnSSave").onclick = async () => {
   const rows = parsedShift.rows.filter((r) => r.phoneKey && (isRM() || r.zoneId === me.zoneId));
   busy($("btnSSave"), true);
   try {
-    const batch = writeBatch(db);
-    rows.forEach((r) => batch.set(doc(db, "shifts", `${parsedShift.month}_${r.phoneKey}`), { ...r, month: parsedShift.month, updatedAt: serverTimestamp() }));
-    await batch.commit();
+    await saveShiftRows(parsedShift.month, rows);
     msg("sMsg", `บันทึกตารางกะเดือน ${parsedShift.month} แล้ว ${rows.length} คน` + (rows.length < parsedShift.rows.length ? ` · ข้าม ${parsedShift.rows.length - rows.length} คน (ไม่มีเบอร์โทร/อยู่นอกเขต)` : ""), "ok");
     $("btnSSave").classList.add("hidden");
     $("aMonth").value = parsedShift.month;
   } catch (err) { msg("sMsg", errText(err)); }
   finally { busy($("btnSSave"), false); }
 };
+
+/* ================= แบบฟอร์มข้อมูลทีม (สำหรับ AM) ================= */
+const empKey = (id) => "id" + String(id ?? "").replace(/\.0+$/, "").trim();
+const cellStr = (v) => (v == null ? "" : String(v).replace(/\.0+$/, "").trim());
+const truthy = (v) => !(v === false || /^(false|0|no|ไม่|n)$/i.test(String(v ?? "").trim()));
+const sheetRows = (wb, name, XLSX) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null });
+const findSheet = (wb, key) => wb.SheetNames.find((n) => n.includes(key));
+function isFormShiftSheet(ws, XLSX) { const r = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null }); return r.some((x) => x && cellStr(x[0]) === "รหัสพนักงาน"); }
+// เดือนจากแท็บ 0_ข้อมูลAM ("เดือนแรกที่เริ่มใช้")
+function formMonth(wb, XLSX) {
+  const n = findSheet(wb, "ข้อมูลAM"); if (!n) return "";
+  const row = sheetRows(wb, n, XLSX).find((r) => r && String(r[0] ?? "").includes("เดือน"));
+  if (!row) return "";
+  const v = row[1];
+  if (typeof v === "number" && v > 40000) return serialToDay(v).slice(0, 7);
+  if (v instanceof Date) return v.toISOString().slice(0, 7);
+  const m = String(v ?? "").match(/(\d{4})[-/.](\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, "0")}` : "";
+}
+// แท็บ 3_ตารางกะ: รหัสพนักงาน | ชื่อ | 1 … 31
+function parseFormShift(rows, month, formStaff) {
+  const h = rows.findIndex((r) => r && cellStr(r[0]) === "รหัสพนักงาน");
+  if (h < 0) throw new Error('ไม่พบหัวตาราง "รหัสพนักงาน" ในแท็บตารางกะ');
+  const [y, mo] = month.split("-").map(Number), last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const cols = [];
+  (rows[h] || []).forEach((v, i) => { const d = Number(cellStr(v)); if (i >= 2 && Number.isInteger(d) && d >= 1 && d <= last) cols.push([i, `${month}-${String(d).padStart(2, "0")}`]); });
+  if (!cols.length) throw new Error("ไม่พบคอลัมน์วันที่ 1–31 ในแท็บตารางกะ");
+  const out = [];
+  for (let i = h + 1; i < rows.length; i++) {
+    const r = rows[i] || [], empId = cellStr(r[0]);
+    if (!empId) continue;
+    const days = {};
+    cols.forEach(([c, d]) => { const v = normCode(cellStr(r[c])); if (v) days[d] = v; });
+    const u = users.find((x) => cellStr(x.empId) === empId) || formStaff.find((x) => x.empId === empId) || {};
+    const bId = u.branchId || "";
+    out.push({ store: bId ? `${bId} ${bName(bId)}` : "", branchId: bId, zoneId: u.zoneId || bZoneOf(bId) || (isRM() ? "" : me.zoneId), name: cellStr(r[1]) || u.name || "",
+      nickname: u.nickname || "", position: u.position || "", phone: "", phoneKey: empKey(empId), empId, days });
+  }
+  return out;
+}
+async function saveShiftRows(month, rows) {
+  for (let i = 0; i < rows.length; i += 400) {
+    const batch = writeBatch(db);
+    rows.slice(i, i + 400).forEach((r) => batch.set(doc(db, "shifts", `${month}_${r.phoneKey}`), { ...r, month, updatedAt: serverTimestamp() }));
+    await batch.commit();
+  }
+}
+const SAMPLE = { emails: ["somchai@gmail.com"], branches: ["5001"] }; // แถวตัวอย่างในแบบฟอร์ม
+let formData = null;
+$("fFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  formData = null; $("fGo").classList.add("hidden"); $("fPrev").innerHTML = ""; msg("fMsg", "กำลังอ่านไฟล์...", "ok");
+  try {
+    const XLSX = await loadXLSX();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+    const sB = findSheet(wb, "สาขา"), sS = findSheet(wb, "พนักงาน"), sT = findSheet(wb, "ตารางกะ");
+    if (!sB || !sS) throw new Error("ไม่ใช่ไฟล์แบบฟอร์ม — ต้องมีแท็บ 1_สาขา และ 2_พนักงาน");
+    const warn = [];
+    // สาขา
+    const br = [];
+    sheetRows(wb, sB, XLSX).slice(1).forEach((r) => {
+      const id = (cellStr(r[0]).match(/\d{3,5}/) || [""])[0]; if (!id) return;
+      let lat = r[2], lng = r[3];
+      if ((lng == null || lng === "") && /,/.test(String(lat))) [lat, lng] = String(lat).split(",");
+      lat = parseFloat(String(lat ?? "").trim()); lng = parseFloat(String(lng ?? "").trim());
+      const b = { id, name: cellStr(r[1]), lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, radius: parseFloat(cellStr(r[4])) || DEFAULT_RADIUS, active: truthy(r[5]), team: cellStr(r[6]), sample: SAMPLE.branches.includes(id) && /seacon/i.test(cellStr(r[1])) };
+      const exB = allBranches.find((x) => x.id === id);
+      if (!b.sample && (b.lat == null || b.lng == null) && !(exB && typeof exB.lat === "number")) warn.push(`สาขา ${id} ${b.name}: ยังไม่มีพิกัด (เช็กอินที่สาขานี้ไม่ได้จนกว่าจะใส่)`);
+      br.push(b);
+    });
+    // พนักงาน
+    const st = [], seen = new Set();
+    sheetRows(wb, sS, XLSX).slice(1).forEach((r) => {
+      const email = cellStr(r[0]).toLowerCase(), name = cellStr(r[1]); if (!email && !name) return;
+      const s = { email, name, position: cellStr(r[2]), branchId: (cellStr(r[3]).match(/\d{3,5}/) || [""])[0], active: truthy(r[4]), empId: cellStr(r[5]), sample: SAMPLE.emails.includes(email) };
+      if (s.sample) { st.push(s); return; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) warn.push(`${name || "(ไม่มีชื่อ)"}: อีเมลไม่ถูกต้อง — ข้าม`);
+      else if (seen.has(email)) warn.push(`${email}: อีเมลซ้ำในไฟล์ — ใช้แถวแรก`);
+      if (!s.empId) warn.push(`${name}: ไม่มีรหัสพนักงาน (จับคู่ตารางกะไม่ได้)`);
+      if (s.branchId && !br.some((b) => b.id === s.branchId) && !allBranches.some((b) => b.id === s.branchId)) warn.push(`${name}: สาขา ${s.branchId} ไม่อยู่ในแท็บสาขา`);
+      seen.add(email); st.push(s);
+    });
+    // ตารางกะ
+    let month = formMonth(wb, XLSX) || $("sMonth").value, sh = [];
+    const realStaff = st.filter((s) => !s.sample);
+    if (sT) {
+      if (!month) warn.push("ไม่พบเดือนของตารางกะ (แท็บ 0_ข้อมูลAM) — ข้ามตารางกะ อัปโหลดทีหลังที่แท็บ กะ & มาสาย/ขาด");
+      else sh = parseFormShift(sheetRows(wb, sT, XLSX), month, realStaff).filter((r) => !(r.empId === "40012345" && /สมชาย/.test(r.name)));
+      sh.forEach((r) => { if (!realStaff.some((s) => s.empId === r.empId) && !users.some((u) => cellStr(u.empId) === r.empId)) warn.push(`ตารางกะ: รหัส ${r.empId} ${r.name} ไม่อยู่ในแท็บพนักงาน`); });
+    }
+    const existing = new Set(users.map((u) => (u.email || "").toLowerCase()));
+    const newStaff = realStaff.filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email)).filter((s, i, a) => a.findIndex((x) => x.email === s.email) === i);
+    formData = { br: br.filter((b) => !b.sample), st: newStaff, sh, month };
+    const nSample = br.filter((b) => b.sample).length + st.filter((s) => s.sample).length;
+    $("fPrev").innerHTML = `<div class="stats sm">
+        <div class="stat"><span class="muted">สาขา</span><b>${formData.br.length}</b></div>
+        <div class="stat"><span class="muted">พนักงานใหม่</span><b>${newStaff.filter((s) => !existing.has(s.email)).length}</b></div>
+        <div class="stat"><span class="muted">มีบัญชีแล้ว (ข้าม)</span><b>${newStaff.filter((s) => existing.has(s.email)).length}</b></div>
+        <div class="stat"><span class="muted">ตารางกะ ${esc(month || "-")}</span><b>${sh.length} คน</b></div></div>
+      ${nSample ? `<p class="muted">ข้ามแถวตัวอย่างของแบบฟอร์ม ${nSample} แถว</p>` : ""}
+      ${warn.length ? `<div class="msg err">ตรวจก่อนนำเข้า:<br>${warn.map(esc).join("<br>")}</div>` : `<p class="msg ok">ข้อมูลพร้อมนำเข้า</p>`}`;
+    $("fGo").classList.toggle("hidden", !(formData.br.length || newStaff.length || sh.length));
+    msg("fMsg", "");
+  } catch (err) { msg("fMsg", errText(err)); }
+};
+$("btnFImport").onclick = async () => {
+  if (!formData) return;
+  const pw = $("fPw").value.trim();
+  const existing = new Set(users.map((u) => (u.email || "").toLowerCase()));
+  const toAdd = formData.st.filter((s) => !existing.has(s.email));
+  if (toAdd.length && pw.length < 6) return msg("fMsg", "ตั้งรหัสผ่านเริ่มต้นอย่างน้อย 6 ตัว");
+  if (!confirm(`นำเข้า: สาขา ${formData.br.length} · พนักงานใหม่ ${toAdd.length} คน · ตารางกะ ${formData.sh.length} คน ?`)) return;
+  busy($("btnFImport"), true, "กำลังนำเข้า...");
+  const fail = [];
+  try {
+    const zoneFor = (team) => (isRM() ? (MULTI_ZONE ? String(team || "").toLowerCase() : "") : me.zoneId);
+    for (const b of formData.br) {
+      const ex = allBranches.find((x) => x.id === b.id);
+      try { await setDoc(doc(db, "branches", b.id), { name: b.name, lat: b.lat ?? (ex && ex.lat) ?? null, lng: b.lng ?? (ex && ex.lng) ?? null, radius: b.radius, active: b.active, zoneId: (ex && ex.zoneId) || zoneFor(b.team) }); }
+      catch (e) { fail.push(`สาขา ${b.id}: ${errText(e)}`); }
+    }
+    msg("fMsg", "บันทึกสาขาแล้ว · กำลังสร้างบัญชีพนักงาน...", "ok");
+    await loadBranches();
+    let n = 0;
+    for (const s of toAdd) {
+      try {
+        await addUser({ name: s.name, empId: s.empId, email: s.email, position: s.position, branchId: s.branchId, zoneId: bZoneOf(s.branchId) || (isRM() ? "" : me.zoneId),
+          role: "staff", phone: "", phoneKey: s.empId ? empKey(s.empId) : "", nickname: "", active: s.active }, pw);
+        n++; msg("fMsg", `สร้างบัญชีแล้ว ${n}/${toAdd.length}...`, "ok");
+      } catch (e) { fail.push(`${s.email}: ${errText(e)}`); }
+    }
+    await loadUsers();
+    if (formData.sh.length && formData.month) {
+      const rows = parseFormShiftFix(formData.sh);
+      await saveShiftRows(formData.month, rows.filter((r) => isRM() || r.zoneId === me.zoneId));
+      $("aMonth").value = formData.month;
+    }
+    msg("fMsg", `นำเข้าเสร็จ · สาขา ${formData.br.length} · บัญชีใหม่ ${n} คน · ตารางกะ ${formData.sh.length} คน` + (toAdd.length ? ` · แจ้งพนักงาน: ล็อกอินด้วยอีเมลส่วนตัว + รหัสเริ่มต้น "${pw}"` : "") + (fail.length ? ` · ไม่สำเร็จ: ${fail.join(" | ")}` : ""), fail.length ? "err" : "ok");
+  } catch (e) { msg("fMsg", errText(e)); }
+  finally { busy($("btnFImport"), false); }
+};
+// เติมสาขา/เขตของตารางกะจากบัญชีที่เพิ่งสร้าง
+function parseFormShiftFix(rows) {
+  return rows.map((r) => { const u = users.find((x) => cellStr(x.empId) === r.empId); if (!u) return r;
+    return { ...r, branchId: u.branchId || r.branchId, store: u.branchId ? `${u.branchId} ${bName(u.branchId)}` : r.store, zoneId: u.zoneId || r.zoneId, position: u.position || r.position, name: r.name || u.name }; });
+}
 
 /* ================= ตารางกะ: มาสาย / ขาด ================= */
 let att = { sums: [], days: [] };
@@ -807,6 +963,126 @@ $("btnAttCsvDay").onclick = () => {
   downloadCsv(`${bkkDay()}_รายวันตามกะ_${$("aMonth").value}.csv`,
     ["วันที่", "สาขา", "ชื่อ", "ชื่อเล่น", "รหัสกะ", "เวลากะ", "เข้างาน", "ออกงาน", "สถานะ"],
     days.slice().reverse().map((r) => [r.day, r.store, r.name, r.nickname, displayCode(r.code), r.sched, r.in ? fmtTime(r.in) : "", r.out ? fmtTime(r.out) : "", r.status]));
+};
+
+/* ================= ส่งออก Excel / Google Sheet ================= */
+// รวมข้อมูลที่โหลดไว้ในหน้า (รายงานเข้า-ออก + มาสาย/ขาด) เป็นตารางหลายแท็บ
+function exportTables() {
+  const t = [];
+  if (reportRows.length) {
+    const s = summarize(filtered()).filter(sumOk);
+    t.push({ name: "สรุปรายคนรายวัน", rows: [["วันที่", "ชื่อ", "รหัสพนักงาน", "ตำแหน่ง", "สาขา", "เข้างาน", "ออกงาน", "ชั่วโมง", "นอกสถานที่", "เหตุผล"],
+      ...s.map((x) => [x.day, x.name, x.empId, x.position, x.branches, x.firstIn ? fmtTime(x.firstIn) : "", x.lastOut ? fmtTime(x.lastOut) : "", x.hours != null ? +x.hours.toFixed(2) : "", x.offsite ? "ใช่" : "", (x.notes || []).join(" / ")])] });
+    t.push({ name: "ทุกรายการ", rows: [["วันที่", "เวลา", "ชื่อ", "รหัสพนักงาน", "ประเภท", "รหัสสาขา", "สาขา", "ระยะจากสาขา(ม.)", "ความแม่นยำ GPS(ม.)", "ท่า", "นอกสถานที่", "หมายเหตุ", "ตรวจแล้ว", "lat", "lng"],
+      ...filtered(true).slice().reverse().map((r) => [r.day, fmtTime(r.t), r.name, r.empId, r.type === "in" ? "เข้างาน" : "ออกงาน", r.branchId, r.branchName, r.distance ?? "", r.accuracy ?? "", r.gesture || "", r.offsite ? "ใช่" : "", r.note || "", r.reviewed ? "ใช่" : "", r.lat, r.lng])] });
+  }
+  if (att.sums.length) {
+    const { sums, days } = attFiltered();
+    t.push({ name: "มาสาย-ขาด สรุปรายคน", rows: [["สาขา", "ชื่อ", "ชื่อเล่น", "เบอร์โทร", "วันทำงาน", "มาทำงาน", "นอกสถานที่(วัน)", "สาย(ครั้ง)", "สาย(นาทีรวม)", "ขาดงาน", "ออกก่อน(ครั้ง)", "ออกก่อน(นาทีรวม)", "ไม่ลงออก", "วันหยุด", "ลา/พักร้อน/อบรม", "มีบัญชี"],
+      ...sums.map((x) => [x.store, x.name, x.nickname, x.phone, x.work, x.present, x.offsite, x.late, x.lateMin, x.absent, x.early, x.earlyMin, x.noOut, x.off, x.leave, x.hasAccount ? "มี" : "ไม่มี"])] });
+    t.push({ name: "รายวันตามกะ", rows: [["วันที่", "สาขา", "ชื่อ", "ชื่อเล่น", "กะ", "เวลากะ", "เข้างาน", "ออกงาน", "สถานะ"],
+      ...days.slice().reverse().map((r) => [r.day, r.store, r.name, r.nickname, displayCode(r.code), r.sched, r.in ? fmtTime(r.in) : "", r.out ? fmtTime(r.out) : "", r.status])] });
+  }
+  return t;
+}
+async function ensureExportData() {
+  if (!reportRows.length) await runReport();
+  if (!att.sums.length && $("aMonth").value) { try { await runAtt(); } catch (e) {} }
+  const t = exportTables();
+  if (!t.length) throw new Error("ยังไม่มีข้อมูล — กด \"ดูรายงาน\" หรือ \"คำนวณ\" ก่อน");
+  return t;
+}
+const exportTitle = () => `${bkkDay()}_${document.title.replace(/ Admin$/, "")}_รายงาน ${$("rFrom").value} ถึง ${$("rTo").value}`;
+const exportMsg = (b, t, k) => { const m = b.closest(".card").querySelector(".msg"); if (m) { m.textContent = t; m.className = "msg " + (k || "ok"); } };
+
+document.querySelectorAll(".js-xlsx").forEach((b) => (b.onclick = async () => {
+  busy(b, true, "กำลังสร้างไฟล์...");
+  try {
+    const [XLSX, tables] = await Promise.all([loadXLSX(), ensureExportData()]);
+    const wb = XLSX.utils.book_new();
+    tables.forEach((t) => { const ws = XLSX.utils.aoa_to_sheet(t.rows); ws["!cols"] = t.rows[0].map((h) => ({ wch: Math.max(10, String(h).length + 4) })); XLSX.utils.book_append_sheet(wb, ws, t.name.slice(0, 31)); });
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const url = URL.createObjectURL(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = document.createElement("a"); a.href = url; a.download = `${bkkDay()}_AM-CheckIn_report_${$("rFrom").value}_to_${$("rTo").value}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    exportMsg(b, `ดาวน์โหลดแล้ว ${tables.length} แท็บ · เปิดใน Google Sheet: ลากไฟล์เข้า Google Drive แล้วดับเบิลคลิก`);
+  } catch (e) { exportMsg(b, errText(e), "err"); }
+  finally { busy(b, false); }
+}));
+
+// ส่งเข้า Google Sheet: ผู้กดเลือกบัญชี Google ของตัวเอง → ระบบสร้างชีตใน Drive ของบัญชีนั้น
+// ใช้ Google Identity Services (ไม่ผ่านระบบล็อกอินของ Firebase) สิทธิ์ drive.file = เข้าถึงเฉพาะไฟล์ที่ระบบสร้างเท่านั้น
+let gisReady = null;
+function loadGis() {
+  if (window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+  return gisReady || (gisReady = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    s.onload = res; s.onerror = () => { gisReady = null; rej(new Error("โหลดระบบล็อกอิน Google ไม่สำเร็จ")); };
+    document.head.appendChild(s);
+  }));
+}
+if (GOOGLE_CLIENT_ID) loadGis().catch(() => {});
+function googleToken() {
+  return new Promise((res, rej) => {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID, scope: "https://www.googleapis.com/auth/drive.file", prompt: "select_account",
+      callback: (r) => (r && r.access_token ? res(r.access_token) : rej(new Error("ไม่ได้รับสิทธิ์จาก Google"))),
+      error_callback: (e) => rej(new Error(e && e.type === "popup_closed" ? "ปิดหน้าต่างเลือกบัญชีก่อนเสร็จ — กดใหม่อีกครั้ง" : e && e.type === "popup_failed_to_open" ? "เบราว์เซอร์บล็อก pop-up — อนุญาตแล้วกดใหม่" : "ล็อกอิน Google ไม่สำเร็จ")),
+    });
+    client.requestAccessToken(); // ต้องเรียกทันทีจากการกดปุ่ม (ไม่งั้นเบราว์เซอร์บล็อก pop-up)
+  });
+}
+document.querySelectorAll(".js-gsheet").forEach((b) => (b.onclick = async () => {
+  if (!GOOGLE_CLIENT_ID) return exportMsg(b, "ยังไม่ได้ตั้งค่า GOOGLE_CLIENT_ID ในไฟล์ tenants.js — ใช้ปุ่มดาวน์โหลด Excel ไปก่อน", "err");
+  if (!(window.google && google.accounts && google.accounts.oauth2)) { loadGis().catch(() => {}); return exportMsg(b, "กำลังเตรียมระบบ Google — กดอีกครั้งใน 2–3 วินาที", "err"); }
+  const tokenP = googleToken(); // เปิดหน้าต่างเลือกบัญชีก่อน แล้วค่อยเตรียมข้อมูล
+  busy(b, true, "กำลังส่ง...");
+  try {
+    const [token, tables] = await Promise.all([tokenP, ensureExportData()]);
+    const api = async (url, body) => {
+      const r = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const m = (j.error && j.error.message) || r.statusText;
+        if (/has not been used|is disabled|SERVICE_DISABLED/i.test(m)) throw new Error("ยังไม่ได้เปิด Google Sheets API ในโปรเจกต์ที่สร้าง Client ID — Google Cloud → APIs & Services → Library → Google Sheets API → Enable");
+        throw new Error("Google Sheet: " + m);
+      }
+      return j;
+    };
+    const ss = await api("https://sheets.googleapis.com/v4/spreadsheets", {
+      properties: { title: exportTitle(), locale: "th_TH", timeZone: "Asia/Bangkok" },
+      sheets: tables.map((t, i) => ({ properties: { sheetId: i + 1, title: t.name, gridProperties: { frozenRowCount: 1 } } })),
+    });
+    await api(`https://sheets.googleapis.com/v4/spreadsheets/${ss.spreadsheetId}/values:batchUpdate`, {
+      valueInputOption: "RAW", data: tables.map((t) => ({ range: `'${t.name}'!A1`, values: t.rows.map((r) => r.map((v) => (v == null ? "" : v))) })),
+    });
+    await api(`https://sheets.googleapis.com/v4/spreadsheets/${ss.spreadsheetId}:batchUpdate`, {
+      requests: tables.map((t, i) => ({ repeatCell: { range: { sheetId: i + 1, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.9, green: 0.93, blue: 0.98 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } })),
+    });
+    const m = b.closest(".card").querySelector(".msg");
+    m.className = "msg ok";
+    m.innerHTML = `สร้าง Google Sheet ใน Drive ของบัญชีที่เลือกแล้ว (${tables.length} แท็บ) · <a href="${ss.spreadsheetUrl}" target="_blank" rel="noopener">เปิดชีต</a>`;
+    try { google.accounts.oauth2.revoke(token, () => {}); } catch (e) {} // คืนสิทธิ์ทันที ไม่ค้างไว้
+  } catch (e) { exportMsg(b, errText(e), "err"); }
+  finally { busy(b, false); }
+}));
+
+$("btnResetAll").onclick = async () => {
+  const list = users.filter((u) => (u.role || "staff") === "staff");
+  if (!confirm(`รีเซ็ตเครื่องของพนักงาน ${list.length} คน?`)) return;
+  busy($("btnResetAll"), true);
+  try {
+    for (let i = 0; i < list.length; i += 400) {
+      const b = writeBatch(db);
+      list.slice(i, i + 400).forEach((u) => b.update(doc(db, "users", u.uid), { deviceId: "", deviceIds: [], devices: {} }));
+      await b.commit();
+    }
+    const reqs = await getDocs(isRM() ? collection(db, "deviceRequests") : query(collection(db, "deviceRequests"), where("zoneId", "==", me.zoneId)));
+    for (const d of reqs.docs) await deleteDoc(d.ref);
+    msg("raMsg", `รีเซ็ตแล้ว ${list.length} คน`, "ok"); loadUsers(); loadDevices();
+  } catch (e) { msg("raMsg", errText(e)); }
+  finally { busy($("btnResetAll"), false); }
 };
 
 /* ================= เขต (RM) ================= */
