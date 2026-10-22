@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ย้ายข้อมูลจากระบบเดิม · AM Check-In</title>
+<link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar"><div class="brand"><img src="icons/logo.svg" alt=""><span>ย้ายข้อมูลจากระบบเดิม → แบบฟอร์มนำเข้า</span></div></header>
+<main class="wrap wide">
+  <section class="card">
+    <h2>1. เข้าสู่ระบบเดิม (อ่านอย่างเดียว)</h2>
+    <p class="muted">หน้านี้อ่านข้อมูลจากระบบเดิม แล้วสร้างไฟล์ "แบบฟอร์มข้อมูลทีม" แยกตามเขต — ไม่แก้ไขหรือลบอะไรในระบบเดิม และไม่เก็บข้อมูลไว้ที่ไหน (สร้างไฟล์ในเครื่องคุณเท่านั้น)</p>
+    <div class="grid">
+      <label>ระบบเดิม<select id="src"><option value="phukchira">RM South (check-in-rm-phukchira)</option></select></label>
+      <label>เดือนของตารางกะ<input id="month" type="month"></label>
+      <label>อีเมลผู้ดูแลระบบเดิม<input id="email" type="email" autocomplete="username"></label>
+      <label>รหัสผ่าน<input id="pw" type="password" autocomplete="current-password"></label>
+    </div>
+    <div class="row" style="max-width:240px"><button id="go" class="btn primary">อ่านข้อมูล</button></div>
+    <p class="msg" id="msg"></p>
+  </section>
+  <section class="card hidden" id="map">
+    <h2>2. จับคู่เขตเดิม → ทีมใหม่ แล้วดาวน์โหลด</h2>
+    <div class="tbl-wrap"><table id="tMap"></table></div>
+    <p class="muted">ไฟล์ที่ได้ = แบบฟอร์มเดียวกับที่ AM กรอก (0_ข้อมูลAM · 1_สาขา · 2_พนักงาน · 3_ตารางกะ) → ให้ AM ทีมนั้นนำเข้าที่ หน้าผู้ดูแล → ตั้งค่า → นำเข้าทีมจากแบบฟอร์ม</p>
+  </section>
+</main>
+<script type="module">
+import { TENANTS } from "./tenants.js";
+import { shiftInfo, normCode, mergeDays, esc, bkkDay } from "./common.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const SOURCES = {
+  phukchira: { region: "South", config: { apiKey: "AIzaSyBTFj_9MHKxqLLuP5TJNwYoDK2LPMcf2oI", authDomain: "check-in-rm-phukchira.firebaseapp.com", projectId: "check-in-rm-phukchira",
+    storageBucket: "check-in-rm-phukchira.firebasestorage.app", messagingSenderId: "53493484639", appId: "1:53493484639:web:ba3c789d9332ae5385dfea" } },
+};
+const $ = (id) => document.getElementById(id);
+const say = (t, k = "err") => { $("msg").textContent = t; $("msg").className = "msg " + k; };
+$("month").value = bkkDay().slice(0, 7);
+let D = null;
+
+$("go").onclick = async () => {
+  const src = SOURCES[$("src").value], month = $("month").value;
+  if (!month) return say("เลือกเดือน");
+  say("กำลังอ่าน...", "ok");
+  try {
+    const app = initializeApp(src.config, "legacy-" + Date.now());
+    await signInWithEmailAndPassword(getAuth(app), $("email").value.trim(), $("pw").value);
+    const db = getFirestore(app);
+    const [zs, bs, us, sh, ov] = await Promise.all([
+      getDocs(collection(db, "zones")).catch(() => ({ docs: [] })), getDocs(collection(db, "branches")), getDocs(collection(db, "users")),
+      getDocs(query(collection(db, "shifts"), where("month", "==", month))),
+      getDocs(query(collection(db, "shiftOverrides"), where("month", "==", month))).catch(() => ({ docs: [] })),
+    ]);
+    const ovMap = new Map(ov.docs.map((d) => [d.id, d.data()]));
+    D = { month, region: src.region,
+      zones: zs.docs.map((d) => ({ id: d.id, ...d.data() })),
+      branches: bs.docs.map((d) => ({ id: d.id, ...d.data() })),
+      users: us.docs.map((d) => ({ uid: d.id, ...d.data() })),
+      shifts: sh.docs.map((d) => ({ key: d.id, ...d.data(), days: mergeDays(d.data(), ovMap.get(d.id)) })) };
+    const zoneIds = [...new Set([...D.zones.map((z) => z.id), ...D.branches.map((b) => b.zoneId || "")])];
+    const teams = Object.entries(TENANTS).filter(([, t]) => (t.region || "") === src.region);
+    $("tMap").innerHTML = `<tr><th>เขตเดิม</th><th>AM เดิม</th><th>สาขา</th><th>พนักงาน</th><th>กะ ${esc(month)}</th><th>ทีมใหม่</th><th></th></tr>` + zoneIds.map((z) => {
+      const zName = (D.zones.find((x) => x.id === z) || {}).name || (z || "(ไม่มีเขต)");
+      const am = D.users.filter((u) => u.role === "am" && u.zoneId === z).map((u) => u.name).join(", ");
+      const nb = D.branches.filter((b) => (b.zoneId || "") === z).length, nu = D.users.filter((u) => (u.role || "staff") === "staff" && (u.zoneId || "") === z).length;
+      const ns = D.shifts.filter((s) => (s.zoneId || "") === z).length;
+      return `<tr><td>${esc(zName)}</td><td>${esc(am || "-")}</td><td>${nb}</td><td>${nu}</td><td>${ns}</td>
+        <td><select data-zone="${esc(z)}"><option value="">— เลือก —</option>${teams.map(([id, t]) => `<option value="${id}">${id.toUpperCase()} · ${esc(t.name.replace(/^AM Check-In\s*·?\s*/, ""))}</option>`).join("")}</select></td>
+        <td><button class="btn sm" data-dl="${esc(z)}">ดาวน์โหลดแบบฟอร์ม</button></td></tr>`;
+    }).join("");
+    $("map").classList.remove("hidden");
+    say(`อ่านแล้ว: เขต ${zoneIds.length} · สาขา ${D.branches.length} · บัญชี ${D.users.length} · ตารางกะ ${D.shifts.length} คน`, "ok");
+  } catch (e) { say("อ่านไม่ได้: " + (e.code || e.message)); }
+};
+
+const OFFMAP = { "วันหยุด": "H", "พักร้อน": "V", "อบรม": "T" };
+function code(c) { const n = normCode(c), i = shiftInfo(n); if (!i) return n; return i.off ? (OFFMAP[i.off] || "OL") : String(i.h); }
+const key = (u) => u.empId ? String(u.empId).trim() : (u.phoneKey ? "T" + u.phoneKey : "");
+
+async function xlsx() {
+  if (window.XLSX) return window.XLSX;
+  await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  return window.XLSX;
+}
+document.addEventListener("click", async (e) => {
+  const z = e.target.dataset && e.target.dataset.dl; if (z === undefined) return;
+  const team = document.querySelector(`select[data-zone="${CSS.escape(z)}"]`).value;
+  if (!team) return say("เลือกทีมใหม่ของเขตนี้ก่อน");
+  const T = TENANTS[team], XLSX = await xlsx(), m = D.month;
+  const br = D.branches.filter((b) => (b.zoneId || "") === z).sort((a, b) => a.id.localeCompare(b.id));
+  const staff = D.users.filter((u) => (u.role || "staff") === "staff" && (u.zoneId || "") === z);
+  const byPhone = new Map(D.users.filter((u) => u.phoneKey).map((u) => [u.phoneKey, u]));
+  const sh = D.shifts.filter((s) => (s.zoneId || "") === z);
+  // คนที่มีกะแต่ยังไม่มีบัญชี → ใส่ในแท็บพนักงานโดยเว้นอีเมลไว้ให้ AM เติม
+  const extra = sh.filter((s) => !byPhone.get(s.phoneKey)).map((s) => ({ name: s.name, position: s.position || "", branchId: s.branchId || "", email: "", empId: "", phoneKey: s.phoneKey, active: true }));
+  const [y, mo] = m.split("-").map(Number), last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const wb = XLSX.utils.book_new();
+  const add = (name, rows) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws["!cols"] = rows[0].map(() => ({ wch: 16 })); XLSX.utils.book_append_sheet(wb, ws, name); };
+  add("0_ข้อมูลAM", [["หัวข้อ", "กรอกข้อมูล", "หมายเหตุ"], ["ชื่อ AM", T.name.replace(/^AM Check-In\s*·?\s*/, ""), ""], ["อีเมล AM (Gmail)", T.ownerEmail, ""], ["ภาค", T.region || D.region, ""],
+    ["รหัสทีม", team.toUpperCase(), ""], ["เบอร์โทร / LINE", "", ""], ["เดือนแรกที่เริ่มใช้", m, "ตารางกะในแท็บ 3_ตารางกะ เป็นของเดือนนี้"], ["จำนวนพนักงานในทีม", String(staff.length + extra.length), ""]]);
+  add("1_สาขา", [["รหัสสาขา", "ชื่อสาขา", "Latitude", "Longitude", "รัศมีที่อนุญาต (เมตร)", "ใช้งาน", "เขต (รหัสทีม AM)"],
+    ...br.map((b) => [b.id, b.name || "", b.lat ?? "", b.lng ?? "", b.radius || 200, b.active === false ? "FALSE" : "TRUE", team.toUpperCase()])]);
+  add("2_พนักงาน", [["Email ส่วนตัว", "ชื่อ-นามสกุล", "ตำแหน่ง", "รหัสสาขาประจำ", "ใช้งาน", "รหัสพนักงาน"],
+    ...staff.map((u) => [u.email || "", u.name || "", u.position || "", u.branchId || "", u.active === false ? "FALSE" : "TRUE", key(u)]),
+    ...extra.map((u) => ["", u.name, u.position, u.branchId, "TRUE", key(u)])]);
+  add("3_ตารางกะ", [["รหัสพนักงาน", "ชื่อ", ...Array.from({ length: 31 }, (_, i) => String(i + 1))],
+    ...sh.map((s) => { const u = byPhone.get(s.phoneKey) || { phoneKey: s.phoneKey, empId: "" };
+      return [key(u), s.name || u.name || "", ...Array.from({ length: 31 }, (_, i) => { const d = `${m}-${String(i + 1).padStart(2, "0")}`; return i < last && s.days[d] ? code(s.days[d]) : ""; })]; })]);
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const url = URL.createObjectURL(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  const a = document.createElement("a"); a.href = url; a.download = `${bkkDay()}_form_${team.toUpperCase()}_${m}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+  say(`ดาวน์โหลดแบบฟอร์ม ${team.toUpperCase()} แล้ว · สาขา ${br.length} · พนักงาน ${staff.length}${extra.length ? ` (+ยังไม่มีอีเมล ${extra.length} คน — เติมอีเมลในแท็บ 2_พนักงาน ก่อนนำเข้า)` : ""} · กะ ${sh.length} คน`, "ok");
+});
+</script>
+</body>
+</html>
