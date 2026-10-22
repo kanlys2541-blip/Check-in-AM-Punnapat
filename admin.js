@@ -182,9 +182,16 @@ $("btnBBulk").onclick = async () => {
   if (!lines.length) return msg("bBulkMsg", "ยังไม่มีข้อมูล");
   const batch = writeBatch(db); let n = 0; const bad = [];
   for (const l of lines) {
-    const [id, name, la, ln, r, z] = l.split(/\t|,/).map((s) => (s || "").trim());
+    // รูปแบบแบบฟอร์ม (คัดลอกจากแท็บ 1_สาขา): รหัสสาขา | ชื่อสาขา | Latitude | Longitude | รัศมี | ใช้งาน | เขต(รหัสทีม)
+    const cols = (l.includes("\t") ? l.split("\t") : l.split(",")).map((s) => (s || "").trim());
+    let [id, name, la, ln, r, act, z] = cols;
+    if (/รหัสสาขา/.test(id)) continue; // แถวหัวตาราง
+    if ((!ln) && /,/.test(la || "")) [la, ln] = la.split(",").map((s) => s.trim()); // "13.69, 100.64" ในช่องเดียว
+    if (act && !/^(true|false|1|0|y|n|ใช่|ไม่)$/i.test(act)) { z = act; act = ""; } // รูปแบบเดิม: ช่องที่ 6 = รหัสเขต
+    id = (String(id || "").match(/\d{3,5}/) || [""])[0];
     if (!id || !name) { bad.push(l); continue; }
-    const data = { name, lat: parseNum(la), lng: parseNum(ln), radius: parseNum(r) || DEFAULT_RADIUS };
+    const data = { name, lat: parseNum(la), lng: parseNum(ln), radius: parseNum(r) || DEFAULT_RADIUS, active: !/^(false|0|n|ไม่)$/i.test(act || "") };
+    if (!MULTI_ZONE) z = "";
     if (!isRM()) {
       const other = allBranches.find((b) => b.id === id && b.zoneId && b.zoneId !== me.zoneId);
       if (other) { bad.push(`${id} (อยู่เขตอื่น)`); continue; }
@@ -288,14 +295,20 @@ $("btnUBulk").onclick = async () => {
   const existing = new Set(users.map((u) => (u.email || "").toLowerCase()));
   let skip = 0;
   for (const l of lines) {
-    const [name, empId, email, position, branchId, phone, nickname] = l.split(l.includes("\t") ? "\t" : l.includes("|") ? "|" : l.includes(";") ? ";" : ",").map((s) => (s || "").trim());
+    const cols = l.split(l.includes("\t") ? "\t" : l.includes("|") ? "|" : l.includes(";") ? ";" : ",").map((s) => (s || "").trim());
+    if (/^email|อีเมล/i.test(cols[0]) || /ชื่อ-นามสกุล/.test(cols[0])) continue; // แถวหัวตาราง
+    let name, empId, email, position, branchId, phone = "", nickname = "", active = "";
+    // รูปแบบแบบฟอร์ม (คัดลอกจากแท็บ 2_พนักงาน): Email | ชื่อ-นามสกุล | ตำแหน่ง | รหัสสาขาประจำ | ใช้งาน | รหัสพนักงาน
+    if (cols[0].includes("@")) [email, name, position, branchId, active, empId] = cols;
+    else [name, empId, email, position, branchId, phone, nickname] = cols; // รูปแบบเดิม
+    empId = String(empId || "").replace(/\.0+$/, "");
     if (!name || !email || !email.includes("@")) { fail.push(`${name || l} (อ่านอีเมลไม่ได้ — คั่นข้อมูลด้วยจุลภาค , หรือคัดลอกจาก Excel)`); continue; }
     if (STAFF_DOMAIN && !email.toLowerCase().endsWith("@" + STAFF_DOMAIN)) { fail.push(`${email} (ต้องเป็น @${STAFF_DOMAIN})`); continue; }
     if (existing.has(email.toLowerCase())) { skip++; continue; }
     const bId = (String(branchId).match(/\d{4}/) || [""])[0];
     const zId = bZoneOf(bId) || (isRM() ? "" : me.zoneId);
     if (!isRM() && zId !== me.zoneId) { fail.push(`${name} (สาขา ${bId} ไม่อยู่ในเขตของคุณ)`); continue; }
-    try { await addUser({ name, empId, email: email.toLowerCase(), position, branchId: bId, zoneId: zId, role: "staff", phone: phone || "", phoneKey: phoneKey(phone), nickname: nickname || "" }, pw); ok++; msg("uBulkMsg", `กำลังเพิ่ม... ${ok}/${lines.length}`, "ok"); }
+    try { await addUser({ name, empId, email: email.toLowerCase(), position, branchId: bId, zoneId: zId, role: "staff", phone: phone || "", phoneKey: phone ? phoneKey(phone) : empId ? empKey(empId) : "", nickname: nickname || "", active: !/^(false|0|n|ไม่)$/i.test(active || "") }, pw); ok++; msg("uBulkMsg", `กำลังเพิ่ม... ${ok}/${lines.length}`, "ok"); }
     catch (e) { fail.push(`${email} (${errText(e)})`); }
   }
   busy($("btnUBulk"), false);

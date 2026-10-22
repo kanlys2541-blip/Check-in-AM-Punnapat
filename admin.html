@@ -161,8 +161,8 @@
       </div>
       <div class="card">
         <h3>เพิ่มหลายคนพร้อมกัน</h3>
-        <p class="muted">คัดลอกแถวจาก Excel มาวางได้เลย หรือพิมพ์คั่นด้วยจุลภาค <b>,</b> (ห้ามใช้จุด) 1 คนต่อ 1 บรรทัด: <b>ชื่อ-นามสกุล | รหัสพนักงาน | อีเมล | ตำแหน่ง | รหัสสาขา | เบอร์โทร | ชื่อเล่น</b> — ทุกคนใช้รหัสผ่านเริ่มต้นเดียวกันด้านล่าง (ถ้าอีเมลซ้ำกับที่มีอยู่ ระบบจะข้าม)</p>
-        <textarea id="uBulk" placeholder="สมชาย ใจดี, 40112233, somchai@gmail.com, Mall Operation Manager, 5175, 081-234-5678, ชาย"></textarea>
+        <p class="muted">คัดลอกแถวจากแท็บ <b>2_พนักงาน</b> ของแบบฟอร์มมาวางได้เลย (ติดหัวตารางมาด้วยก็ได้ ระบบข้ามให้) 1 คนต่อ 1 บรรทัด: <b>Email | ชื่อ-นามสกุล | ตำแหน่ง | รหัสสาขาประจำ | ใช้งาน | รหัสพนักงาน</b> — ทุกคนใช้รหัสผ่านเริ่มต้นเดียวกันด้านล่าง (อีเมลซ้ำกับที่มีอยู่ ระบบจะข้าม) · ตารางกะจับคู่ด้วยรหัสพนักงาน</p>
+        <textarea id="uBulk" placeholder="somchai@gmail.com	สมชาย ใจดี	MOM	5175	TRUE	40112233"></textarea>
         <label>รหัสผ่านเริ่มต้น (ทุกคน)<input id="uBulkPw" placeholder="อย่างน้อย 6 ตัว"></label>
         <div class="row" style="max-width:220px"><button id="btnUBulk" class="btn primary">นำเข้า</button></div>
         <p class="msg" id="uBulkMsg"></p>
@@ -195,8 +195,8 @@
       </div>
       <div class="card">
         <h3>นำเข้าหลายสาขา</h3>
-        <p class="muted">1 สาขาต่อ 1 บรรทัด: <b>รหัสสาขา, ชื่อสาขา, latitude, longitude, รัศมี, รหัสเขต</b> (เว้นพิกัดว่างไว้ได้ แล้วมาเติมทีหลัง · คัดลอกจาก Excel มาวางได้ · AM ไม่ต้องใส่รหัสเขต ระบบใส่เขตของคุณให้)</p>
-        <textarea id="bBulk"></textarea>
+        <p class="muted">คัดลอกแถวจากแท็บ <b>1_สาขา</b> ของแบบฟอร์มมาวางได้เลย 1 สาขาต่อ 1 บรรทัด: <b>รหัสสาขา | ชื่อสาขา | Latitude | Longitude | รัศมี | ใช้งาน | เขต(รหัสทีม)</b> (พิกัดแบบ "13.69, 100.64" ในช่อง Latitude ช่องเดียวได้ · เว้นพิกัดว่างไว้แล้วมาเติมทีหลังได้)</p>
+        <textarea id="bBulk" placeholder="5001	Seacon	13.692276, 100.648233		200	TRUE	E2"></textarea>
         <div class="row" style="max-width:420px">
           <button id="btnBBulk" class="btn primary">นำเข้า</button>
           <button id="btnBSeed" class="btn">ใส่รายชื่อ 14 สาขาของผม</button>
