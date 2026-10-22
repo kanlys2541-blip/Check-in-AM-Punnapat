@@ -117,4 +117,38 @@ export const TENANTS = {
     }
   },
 
+  // ---------- E1 · Janjira B. ----------
+  "e1": {
+    name: "AM Check-In · Janjira B.",
+    region: "East",
+    ownerEmail: "jenjiraboknoi@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyARUD2ubJg737ss03F1CjqHgdB6__xJwRA",
+      authDomain: "checkin-e1.firebaseapp.com",
+      projectId: "checkin-e1",
+      storageBucket: "checkin-e1.firebasestorage.app",
+      messagingSenderId: "617416718928",
+      appId: "1:617416718928:web:7b3694946fdec195176f55"
+    }
+  },
+
+  // ---------- E3 · Sirirojn W. ----------
+  "e3": {
+    name: "AM Check-In · Sirirojn W.",
+    region: "East",
+    ownerEmail: "sirirojn.wo@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyBCKbF5BYH4XpH5RU03Lw2BFZeP6KwrP2Q",
+      authDomain: "checkin-e3.firebaseapp.com",
+      projectId: "checkin-e3",
+      storageBucket: "checkin-e3.firebasestorage.app",
+      messagingSenderId: "534835542585",
+      appId: "1:534835542585:web:8bc71b81b2970e02882be8"
+    }
+  },
+
 };
