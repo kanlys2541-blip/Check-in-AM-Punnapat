@@ -1,9 +1,10 @@
 // ============================================================
 //  รายชื่อ AM ที่ใช้ระบบนี้ — 1 AM = 1 Firebase (ข้อมูล/บัญชี/โควตาแยกกันเด็ดขาด)
 //  เพิ่ม AM ใหม่: เปิดหน้า setup.html → กรอกข้อมูล → คัดลอกบล็อกที่ได้มาวางต่อท้ายในรายการนี้
-//  ลิงก์ของแต่ละ AM:  …/?am=<รหัสทีม เช่น e1>   (หน้าผู้ดูแล …/admin.html?am=e1)
+//  ลิงก์กลาง (ทุกทีม): พนักงาน …/  ·  AM …/admin.html  ·  RM …/rm.html — ระบบหาทีมจากบัญชีที่ล็อกอิน
+//  ลิงก์เฉพาะทีม (สำรอง): …/?am=<รหัสทีม เช่น e1>
 // ============================================================
-export const DEFAULT_TENANT = "east"; // เปิดลิงก์ที่ไม่มี ?am= จะเข้าเขตนี้ (ระบบของ Punnapat)
+export const DEFAULT_TENANT = "east"; // ทีมที่ลองก่อนเมื่อเปิดลิงก์กลางครั้งแรก (ถ้าบัญชีไม่อยู่ทีมนี้ ระบบจะค้นหาทีมอื่นให้อัตโนมัติ)
 
 // ปุ่ม "ส่งเข้า Google Sheet" — OAuth Client ID (ประเภท Web application) ตั้งครั้งเดียว ใช้ได้ทุก AM
 // ชีตจะถูกสร้างใน Drive ของคนที่กดปุ่ม ไม่ผ่านพื้นที่ของเจ้าของ Client ID · เว้นว่าง = ซ่อนการทำงาน (ใช้ปุ่ม Excel แทน)
@@ -151,4 +152,72 @@ export const TENANTS = {
     }
   },
 
+
+  // ---------- NE1 · Sirikorn M. ----------
+  "ne1": {
+    name: "AM Check-In · Sirikorn M.",
+    region: "Northeast",
+    ownerEmail: "sirikornmeepon@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyCL5me-PtNjAp8FpsHGiA-7TqhT0pWsCH4",
+      authDomain: "checkin-ne1.firebaseapp.com",
+      projectId: "checkin-ne1",
+      storageBucket: "checkin-ne1.firebasestorage.app",
+      messagingSenderId: "227296670201",
+      appId: "1:227296670201:web:5d3a0e77e1ee5e1ec74d28"
+    }
+  },
+
+  // ---------- NE2 · Natcharee S. ----------
+  "ne2": {
+    name: "AM Check-In · Natcharee S.",
+    region: "Northeast",
+    ownerEmail: "natcharee4289@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyBaYLFTfEu_kyx0RbIHNBaT696HqBWImus",
+      authDomain: "checkin-ne2.firebaseapp.com",
+      projectId: "checkin-ne2",
+      storageBucket: "checkin-ne2.firebasestorage.app",
+      messagingSenderId: "174173425429",
+      appId: "1:174173425429:web:a032cbfc9be6e610be231c"
+    }
+  },
+
+  // ---------- NE3 · Thanawan T. ----------
+  "ne3": {
+    name: "AM Check-In · Thanawan T.",
+    region: "Northeast",
+    ownerEmail: "thanawan.thiengtum@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyDttzi2TM9Zrv-fz2efRmwMiGrOCwcUeHc",
+      authDomain: "checkin-ne3.firebaseapp.com",
+      projectId: "checkin-ne3",
+      storageBucket: "checkin-ne3.firebasestorage.app",
+      messagingSenderId: "1073581270390",
+      appId: "1:1073581270390:web:37c294a32744f367194657"
+    }
+  },
+
+  // ---------- NE4 · Kanyanatt P. ----------
+  "ne4": {
+    name: "AM Check-In · Kanyanatt P.",
+    region: "Northeast",
+    ownerEmail: "work.kan168@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyAN6NzHMQQPJF-L_gV4hLJmpb3hN03jC08",
+      authDomain: "checkin-ne4.firebaseapp.com",
+      projectId: "checkin-ne4",
+      storageBucket: "checkin-ne4.firebasestorage.app",
+      messagingSenderId: "598842047889",
+      appId: "1:598842047889:web:ab43dabeb6be0625e22e30"
+    }
+  },
 };
