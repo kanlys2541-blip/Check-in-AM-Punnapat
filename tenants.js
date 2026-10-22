@@ -31,6 +31,24 @@ export const TENANTS = {
 
   // ---------- วาง AM ใหม่ต่อจากบรรทัดนี้ ----------
 
+  // ---------- S1 · Ubonrat S. ----------
+  "s1": {
+    name: "AM Check-In · Ubonrat S.",
+    region: "South",
+    ownerEmail: "tn844sd@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyDIdVf_NDFROlDSubZhdWnfu3r6afqLqt0",
+      authDomain: "checkin-s1.firebaseapp.com",
+      projectId: "checkin-s1",
+      storageBucket: "checkin-s1.firebasestorage.app",
+      messagingSenderId: "1040805777386",
+      appId: "1:1040805777386:web:399eb4a74a7c44a10bec93"
+    }
+  },
+
+
   // ---------- E2 · Pattarasiri S. ----------
   "e2": {
     name: "AM Check-In · Pattarasiri S.",
