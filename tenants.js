@@ -174,7 +174,7 @@ export const TENANTS = {
   "ne2": {
     name: "AM Check-In · Natcharee S.",
     region: "Northeast",
-    ownerEmail: "natcharee4289@gmail.com",
+    ownerEmail: "natchaza159@gmail.com",
     multiZone: false,
     defaultRadius: 200,
     firebaseConfig: {
