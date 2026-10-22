@@ -13,6 +13,8 @@ export const TENANTS = {
   // ---------- AM East (Punnapat) ----------
   east: {
     aliases: ["e4"],          // รหัสทีม E4 ในแบบฟอร์ม → ?am=e4 ใช้ได้เหมือนกัน
+    region: "East",           // ภาค — RM ของภาคนี้ดูสรุปได้ที่ rm.html?rm=east
+    amName: "Punnapat N.",    // ชื่อที่แสดงในหน้าสรุป RM
     name: "AM Check-In",
     ownerEmail: "kanlys.2541@gmail.com",
     multiZone: false,
@@ -32,6 +34,7 @@ export const TENANTS = {
   // ---------- E2 · Pattarasiri S. ----------
   "e2": {
     name: "AM Check-In · Pattarasiri S.",
+    region: "East",
     ownerEmail: "pattarasiri1612@gmail.com",
     multiZone: false,
     defaultRadius: 200,

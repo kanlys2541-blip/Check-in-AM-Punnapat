@@ -1,5 +1,5 @@
 import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN, displayCode, shiftLabel, mergeDays } from "./common.js";
-import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS, TENANT_QS, GOOGLE_CLIENT_ID } from "./firebase-config.js";
+import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS, TENANT_QS, GOOGLE_CLIENT_ID, TENANT_REGION } from "./firebase-config.js";
 import * as CFG from "./firebase-config.js";
 const MULTI_ZONE = CFG.MULTI_ZONE === true; // false = ใช้คนเดียว ไม่แบ่งเขต
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -32,7 +32,7 @@ const isRM = () => me.owner || me.role === "rm" || me.role === "admin";
 const bName = (id) => (allBranches.find((b) => b.id === id) || {}).name || id || "-";
 const bZoneOf = (id) => (allBranches.find((b) => b.id === id) || {}).zoneId || "";
 const zName = (id) => (zones.find((z) => z.id === id) || {}).name || id || "-";
-const ROLE_LABEL = { rm: "RM / RL", admin: "RM / RL", am: "AM", staff: "พนักงาน" };
+const ROLE_LABEL = { rm: "RM / RL", admin: "RM / RL", am: "AM", staff: "พนักงาน", viewer: "RM (ดูอย่างเดียว)" };
 const monthsBetween = (a, b) => { const out = []; let [y, m] = a.split("-").map(Number); const [y2, m2] = b.split("-").map(Number);
   while (y < y2 || (y === y2 && m <= m2)) { out.push(`${y}-${String(m).padStart(2, "0")}`); m++; if (m > 12) { m = 1; y++; } } return out; };
 const nextMonth = (ym) => { let [y, m] = ym.split("-").map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2, "0")}`; };
@@ -52,6 +52,7 @@ onAuthStateChanged(auth, async (user) => {
     const p = snap.exists() ? snap.data() : {};
     me = { uid: user.uid, role: p.role || "", zoneId: p.zoneId || "", owner: isOwner, name: p.name || user.email };
     const allowed = isRM() || (me.role === "am" && me.zoneId && p.active !== false);
+    if (p.role === "viewer") { $("scDenied").querySelector("p").innerHTML = `บัญชีนี้สำหรับดูสรุป — <a href="rm.html${TENANT_REGION ? "?rm=" + TENANT_REGION.toLowerCase() : ""}">ไปหน้าสรุป RM</a>`; return screen("scDenied"); }
     if (!allowed) { $("scDenied").querySelector("p").textContent = me.role === "am" ? "บัญชี AM นี้ยังไม่ได้กำหนดเขต — ติดต่อ RM" : "บัญชีนี้ไม่ใช่ผู้ดูแลระบบ"; return screen("scDenied"); }
     document.querySelectorAll(".rm-only").forEach((el) => el.classList.toggle("hidden", !isRM() || !MULTI_ZONE));
     if (!MULTI_ZONE) document.querySelectorAll("#uRole option[value=am]").forEach((o) => o.remove());
@@ -1083,6 +1084,23 @@ $("btnResetAll").onclick = async () => {
     msg("raMsg", `รีเซ็ตแล้ว ${list.length} คน`, "ok"); loadUsers(); loadDevices();
   } catch (e) { msg("raMsg", errText(e)); }
   finally { busy($("btnResetAll"), false); }
+};
+
+/* ---------- บัญชี RM ดูอย่างเดียว ---------- */
+$("btnViewer").onclick = async () => {
+  const email = $("vEmail").value.trim().toLowerCase(), name = $("vName").value.trim() || "RM";
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return msg("vMsg", "กรอกอีเมลของ RM");
+  if (users.some((u) => (u.email || "").toLowerCase() === email)) return msg("vMsg", "อีเมลนี้มีบัญชีในทีมแล้ว");
+  busy($("btnViewer"), true);
+  try {
+    const pw = genPw() + genPw(); // รหัสสุ่ม — RM ตั้งรหัสเองจากอีเมลที่ระบบส่งไป
+    const uid = await createAuthUser(email, pw);
+    await setDoc(doc(db, "users", uid), { name, email, role: "viewer", zoneId: "", branchId: "", active: true, mustChangePassword: false, deviceIds: [], createdAt: serverTimestamp() });
+    await sendPasswordResetEmail(auth, email);
+    msg("vMsg", `เพิ่มบัญชี ${email} แล้ว · ระบบส่งอีเมลให้ RM ตั้งรหัสผ่าน (ตั้งให้เหมือนกันทุกทีม จะล็อกอินหน้าสรุปครั้งเดียวได้)`, "ok");
+    $("vEmail").value = ""; $("vName").value = ""; loadUsers();
+  } catch (e) { msg("vMsg", errText(e)); }
+  finally { busy($("btnViewer"), false); }
 };
 
 /* ================= เขต (RM) ================= */

@@ -63,7 +63,7 @@ $("form").onchange = async (e) => {
     const n = wb.SheetNames.find((x) => x.includes("ข้อมูลAM")); if (!n) throw 0;
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "" });
     const get = (k) => { const r = rows.find((x) => String(x[0]).includes(k)); return r ? String(r[1]).trim() : ""; };
-    const am = get("ชื่อ AM"), mail = get("อีเมล"), team = get("รหัสทีม");
+    const am = get("ชื่อ AM"), mail = get("อีเมล"), team = get("รหัสทีม"); window.__region = get("ภาค");
     if (team) $("code").value = team.toLowerCase();
     if (am) $("name").value = `AM Check-In · ${am}`;
     if (mail) $("owner").value = mail.toLowerCase();
@@ -85,6 +85,7 @@ $("go").onclick = () => {
   const q = (v) => JSON.stringify(v);
   $("oTenant").textContent = `  ${q(code)}: {
     name: ${q(name)},
+    region: ${q(window.__region || ({ n: "North", ne: "Northeast", s: "South", e: "East" })[(code.match(/^[a-z]+/) || [""])[0]] || "")},
     ownerEmail: ${q(owner)},
     multiZone: false,
     defaultRadius: 200,

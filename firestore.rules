@@ -22,6 +22,8 @@ service cloud.firestore {
     function isRM() { return isOwner() || (hasUser() && myRole() in ['rm', 'admin'] && isActive()); }
     function isAM() { return hasUser() && myRole() == 'am' && myZone() != '' && isActive(); }
     function amOf(z) { return isAM() && z == myZone(); }
+    // viewer = RM ดูสรุปอย่างเดียว (อ่านได้ แก้ไม่ได้ · ไม่เห็นรูปเซลฟี่ / คำขอ)
+    function isViewer() { return hasUser() && myRole() == 'viewer' && isActive(); }
 
     // ---------- เขต ----------
     match /zones/{zoneId} {
@@ -41,7 +43,7 @@ service cloud.firestore {
 
     // ---------- ผู้ใช้ ----------
     match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || isRM() || amOf(resource.data.zoneId));
+      allow read: if signedIn() && (request.auth.uid == uid || isRM() || amOf(resource.data.zoneId) || isViewer());
       allow create: if isRM() || (amOf(request.resource.data.get('zoneId', '')) && request.resource.data.get('role', '') == 'staff');
       allow update: if isRM()
         || (amOf(resource.data.get('zoneId', '')) && resource.data.get('role', 'staff') == 'staff'
@@ -74,7 +76,7 @@ service cloud.firestore {
 
     // ---------- บันทึกเข้า-ออกงาน ----------
     match /checkins/{id} {
-      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isRM() || amOf(resource.data.zoneId));
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isRM() || amOf(resource.data.zoneId) || isViewer());
       allow create: if signedIn() && validCheckin(request.resource.data)
         // เข้างานต้องมีเซลฟี่คู่กัน · ออกงานไม่ต้องถ่ายรูป
         && (request.resource.data.type == 'out' || existsAfter(/databases/$(database)/documents/checkinPhotos/$(id)));
@@ -98,7 +100,7 @@ service cloud.firestore {
     // ---------- ตารางกะ ----------
     match /shifts/{id} {
       allow read: if signedIn() && (resource.data.phoneKey == myUser().data.get('phoneKey', '-')
-        || isRM() || amOf(resource.data.zoneId));
+        || isRM() || amOf(resource.data.zoneId) || isViewer());
       allow create: if isRM() || amOf(request.resource.data.get('zoneId', ''));
       allow update: if isRM() || (amOf(request.resource.data.get('zoneId', '')) && amOf(resource.data.get('zoneId', '')));
       allow delete: if isRM();
@@ -107,7 +109,7 @@ service cloud.firestore {
     // ---------- กะที่แก้/สลับแล้ว (ไม่ถูกทับเมื่ออัปโหลดไฟล์กะใหม่) ----------
     match /shiftOverrides/{id} {
       allow read: if signedIn() && (resource.data.phoneKey == myUser().data.get('phoneKey', '-')
-        || isRM() || amOf(resource.data.zoneId));
+        || isRM() || amOf(resource.data.zoneId) || isViewer());
       allow create, update: if isRM() || amOf(request.resource.data.get('zoneId', ''));
       allow delete: if isRM();
     }
@@ -130,6 +132,7 @@ service cloud.firestore {
         && d.ts == request.time                       // เวลาเซิร์ฟเวอร์เท่านั้น
         && d.type in ['in', 'out']
         && u.get('active', true) == true
+        && u.get('role', 'staff') != 'viewer'          // บัญชี RM ดูอย่างเดียว เช็กอินไม่ได้
         && u.get('mustChangePassword', false) == false
         // บังคับสลับ เข้า ↔ ออก (ห้ามเข้างานซ้ำ)
         && u.get('lastType', 'out') != d.type

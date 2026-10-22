@@ -1,6 +1,6 @@
 import { auth, db, $, haversine, fmtDist, getDeviceId, isMobile, isInAppBrowser, bkkDay, fmtTime, fmtDateLong, GESTURES, errText, esc, busy,
   normCode, shiftInfo, shiftLabel, displayCode, shiftWindow, mergeDays, deviceInfo, LATE_GRACE_MIN, SHIFT_CHOICES } from "./common.js";
-import { TENANT_QS } from "./firebase-config.js";
+import { TENANT_QS, TENANT_REGION } from "./firebase-config.js";
 document.querySelectorAll('a[href="admin.html"]').forEach((a) => (a.href = "admin.html" + TENANT_QS));
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -45,6 +45,7 @@ async function onUser(user) {
     profile = snap.data();
     if (profile.active === false) return blocked("บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อหัวหน้า");
     if (profile.mustChangePassword) { screen("scChangePw"); return; }
+    if (profile.role === "viewer") { location.href = "rm.html" + (TENANT_REGION ? "?rm=" + TENANT_REGION.toLowerCase() : ""); return; }
     if (isAdminRole()) { if (new URLSearchParams(location.search).has("demo")) return enterDemo(); screen("scAdmin"); return; }
     await checkDevice();
   } catch (e) { blocked(errText(e)); }

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AM Check-In · สรุป RM</title>
+<link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0B2E7A">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar"><div class="brand"><img src="icons/logo.svg" alt=""><span>AM Check-In · สรุป RM</span></div><button id="btnOut" class="link hidden">ออกจากระบบ</button></header>
+<main class="wrap wide">
+  <div class="card">
+    <div class="grid">
+      <label>ภาค<select id="rmRegion"></select></label>
+    </div>
+    <h2 id="rmTitle" style="margin-top:10px"></h2>
+    <p class="muted">ดูได้อย่างเดียว · ข้อมูลอ่านสดจากระบบของแต่ละทีม (ไม่ถูกคัดลอกไปเก็บที่อื่น) · ไม่แสดงรูปเซลฟี่</p>
+  </div>
+
+  <section id="scPick" class="card hidden"><p>เลือกภาคด้านบน หรือใช้ลิงก์ที่ได้รับ เช่น <code>rm.html?rm=south</code></p></section>
+
+  <section id="scLogin" class="card hidden" style="max-width:560px">
+    <h2>เข้าสู่ระบบ RM</h2>
+    <p class="muted">ใช้อีเมลที่ AM เพิ่มเป็น "บัญชี RM" และรหัสผ่านที่ตั้งจากอีเมลของระบบ (ตั้งรหัสเดียวกันทุกทีม จะเข้าได้พร้อมกันทุกทีม)</p>
+    <label>อีเมล<input id="lgEmail" type="email" autocomplete="username"></label>
+    <label>รหัสผ่าน<input id="lgPw" type="password" autocomplete="current-password"></label>
+    <div class="row" style="max-width:240px"><button id="btnLogin" class="btn primary">เข้าสู่ระบบ</button></div>
+    <p class="msg" id="lgMsg"></p>
+    <h3 style="margin-top:14px">สถานะแต่ละทีม</h3>
+    <ul class="list" id="lgTeams"></ul>
+  </section>
+
+  <section id="scDash" class="hidden">
+    <div class="card">
+      <div class="grid">
+        <label>เดือน<input id="rmMonth" type="month"></label>
+        <label>นับตั้งแต่วันที่ (ถ้าเริ่มใช้กลางเดือน)<input id="rmStart" type="date"></label>
+      </div>
+      <div class="row" style="max-width:520px">
+        <button id="btnLoad" class="btn primary">โหลดข้อมูล</button>
+        <button id="btnXlsx" class="btn">📊 ดาวน์โหลด Excel</button>
+      </div>
+      <p class="msg" id="dMsg"></p>
+    </div>
+    <div class="stats" id="rmKpi"></div>
+    <div class="card"><h3>วันนี้</h3><div class="tbl-wrap"><table id="rmToday"></table></div></div>
+    <div class="card"><h3>สรุปตามทีม (AM)</h3><div class="tbl-wrap"><table id="rmTeams"></table></div></div>
+    <div class="card"><h3>สรุปตามสาขา</h3><div class="tbl-wrap"><table id="rmBranches"></table></div></div>
+    <div class="card">
+      <h3>รายคน</h3>
+      <div class="grid">
+        <label>ทีม<select id="rmTeamF"></select></label>
+        <label>ค้นหา<input id="rmSearch" placeholder="ชื่อ / สาขา"></label>
+      </div>
+      <div class="tbl-wrap"><table id="rmPeople"></table></div>
+    </div>
+  </section>
+</main>
+<script type="module" src="rm.js"></script>
+</body>
+</html>

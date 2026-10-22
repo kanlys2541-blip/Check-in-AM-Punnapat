@@ -28,3 +28,4 @@ export const APP_NAME = T.name || "AM Check-In";
 export const DEFAULT_RADIUS = T.defaultRadius || 200;
 export const MULTI_ZONE = T.multiZone === true;
 export const GOOGLE_CLIENT_ID = T.googleClientId || GCID || "";
+export const TENANT_REGION = T.region || "";
