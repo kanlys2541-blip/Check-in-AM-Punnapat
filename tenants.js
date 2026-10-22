@@ -66,5 +66,55 @@ export const TENANTS = {
     }
   },
 
+  // ---------- S2 · Tananan P. ----------
+  "s2": {
+    name: "AM Check-In · Tananan P.",
+    region: "South",
+    ownerEmail: "tanananpakdeelertvichian@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyCf5vD8-4EZ-8TNT5N9inmjQWOhxhtwxtU",
+      authDomain: "checkin-s2.firebaseapp.com",
+      projectId: "checkin-s2",
+      storageBucket: "checkin-s2.firebasestorage.app",
+      messagingSenderId: "127264605506",
+      appId: "1:127264605506:web:824ad571d1d57a3bb334db"
+    }
+  },
+
+  // ---------- S3 · Nantiya F. ----------
+  "s3": {
+    name: "AM Check-In · Nantiya F.",
+    region: "South",
+    ownerEmail: "nantiya.sindee@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyAeeKS9HYcwUovg0nGsaVDkgcl8iFHVdVA",
+      authDomain: "checkin-s3.firebaseapp.com",
+      projectId: "checkin-s3",
+      storageBucket: "checkin-s3.firebasestorage.app",
+      messagingSenderId: "431509096458",
+      appId: "1:431509096458:web:d44fab13dc52452f4777f3"
+    }
+  },
+
+  // ---------- S4 · Eakapol T. ----------
+  "s4": {
+    name: "AM Check-In · Eakapol T.",
+    region: "South",
+    ownerEmail: "eakapon1993tk@gmail.com",
+    multiZone: false,
+    defaultRadius: 200,
+    firebaseConfig: {
+      apiKey: "AIzaSyCXTg7I6b05Fbj9Yoq9JzhkJJhOgAnl3cI",
+      authDomain: "checkin-s4.firebaseapp.com",
+      projectId: "checkin-s4",
+      storageBucket: "checkin-s4.firebasestorage.app",
+      messagingSenderId: "294804175029",
+      appId: "1:294804175029:web:7bdf1d07861b313786e6fc"
+    }
+  },
 
 };
