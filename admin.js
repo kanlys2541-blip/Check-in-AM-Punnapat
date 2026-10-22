@@ -1,6 +1,7 @@
 import { auth, db, $, fmtTime, fmtDateTime, bkkDay, errText, esc, busy, phoneKey, normCode, shiftInfo, shiftWindow, LATE_GRACE_MIN, displayCode, shiftLabel, mergeDays } from "./common.js";
 import { firebaseConfig, OWNER_EMAIL, DEFAULT_RADIUS, TENANT_QS, GOOGLE_CLIENT_ID, TENANT_REGION } from "./firebase-config.js";
 import * as CFG from "./firebase-config.js";
+import { findTeam, goTeam } from "./teamfinder.js";
 const MULTI_ZONE = CFG.MULTI_ZONE === true; // false = ใช้คนเดียว ไม่แบ่งเขต
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -52,7 +53,7 @@ onAuthStateChanged(auth, async (user) => {
     const p = snap.exists() ? snap.data() : {};
     me = { uid: user.uid, role: p.role || "", zoneId: p.zoneId || "", owner: isOwner, name: p.name || user.email };
     const allowed = isRM() || (me.role === "am" && me.zoneId && p.active !== false);
-    if (p.role === "viewer") { $("scDenied").querySelector("p").innerHTML = `บัญชีนี้สำหรับดูสรุป — <a href="rm.html${TENANT_REGION ? "?rm=" + TENANT_REGION.toLowerCase() : ""}">ไปหน้าสรุป RM</a>`; return screen("scDenied"); }
+    if (p.role === "viewer") { $("scDenied").querySelector("p").innerHTML = `บัญชีนี้สำหรับดูสรุป — <a href="rm.html">ไปหน้าสรุป RM</a>`; return screen("scDenied"); }
     if (!allowed) { $("scDenied").querySelector("p").textContent = me.role === "am" ? "บัญชี AM นี้ยังไม่ได้กำหนดเขต — ติดต่อ RM" : "บัญชีนี้ไม่ใช่ผู้ดูแลระบบ"; return screen("scDenied"); }
     document.querySelectorAll(".rm-only").forEach((el) => el.classList.toggle("hidden", !isRM() || !MULTI_ZONE));
     if (!MULTI_ZONE) document.querySelectorAll("#uRole option[value=am]").forEach((o) => o.remove());
@@ -73,8 +74,16 @@ onAuthStateChanged(auth, async (user) => {
 });
 $("btnLogin").onclick = async () => {
   busy($("btnLogin"), true);
-  try { await signInWithEmailAndPassword(auth, $("liEmail").value.trim(), $("liPw").value); msg("liMsg", ""); }
-  catch (e) { msg("liMsg", errText(e)); }
+  const email = $("liEmail").value.trim(), pw = $("liPw").value;
+  try { await signInWithEmailAndPassword(auth, email, pw); msg("liMsg", ""); }
+  catch (e) {
+    if (["auth/invalid-credential", "auth/user-not-found", "auth/wrong-password"].includes(e.code)) {
+      msg("liMsg", "กำลังค้นหาทีมของคุณ...", "ok");
+      const id = await findTeam(email, pw);
+      if (id) { msg("liMsg", "พบบัญชีแล้ว กำลังเข้าสู่ระบบ...", "ok"); return goTeam(id); }
+    }
+    msg("liMsg", errText(e));
+  }
   finally { busy($("btnLogin"), false); }
 };
 $("btnLogout").onclick = () => signOut(auth);

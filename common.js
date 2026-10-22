@@ -1,11 +1,23 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, updateCurrentUser, signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { firebaseConfig, APP_NAME } from "./firebase-config.js";
+import { firebaseConfig, APP_NAME, TENANT_ID } from "./firebase-config.js";
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// รับการล็อกอินที่ส่งต่อมาจากการค้นหาทีม (teamfinder.js) — ไม่ต้องพิมพ์รหัสผ่านซ้ำ
+try {
+  if (sessionStorage.getItem("amci_handoff") === TENANT_ID) {
+    sessionStorage.removeItem("amci_handoff");
+    const pAuth = getAuth(initializeApp(firebaseConfig, "probe-" + TENANT_ID));
+    pAuth.authStateReady().then(async () => {
+      if (pAuth.currentUser) await updateCurrentUser(auth, pAuth.currentUser);
+      await fbSignOut(pAuth).catch(() => {});
+    }).catch(() => {});
+  }
+} catch (e) {}
 
 export const $ = (id) => document.getElementById(id);
 

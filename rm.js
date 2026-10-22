@@ -9,11 +9,12 @@ const msg = (id, t, k = "err") => { $(id).textContent = t || ""; $(id).className
 const regions = [...new Set(Object.values(TENANTS).map((t) => t.region).filter(Boolean))];
 let region = (new URLSearchParams(location.search).get("rm") || "").toLowerCase();
 if (!regions.some((r) => r.toLowerCase() === region)) region = "";
-$("rmRegion").innerHTML = `<option value="">— เลือกภาค —</option>` + regions.map((r) => `<option value="${esc(r.toLowerCase())}">${esc(r)}</option>`).join("");
+$("rmRegion").innerHTML = `<option value="">ทุกภาค (ทุกทีมที่บัญชีนี้ดูได้)</option>` + regions.map((r) => `<option value="${esc(r.toLowerCase())}">${esc(r)}</option>`).join("");
 $("rmRegion").value = region;
-$("rmRegion").onchange = () => { location.search = "?rm=" + $("rmRegion").value; };
+$("rmRegion").onchange = () => { location.search = $("rmRegion").value ? "?rm=" + $("rmRegion").value : ""; };
 
-const teams = Object.entries(TENANTS).filter(([, t]) => region && (t.region || "").toLowerCase() === region)
+// ไม่ระบุภาค = ลองทุกทีม แล้วแสดงเฉพาะทีมที่บัญชีนี้มีสิทธิ์ดู (ลิงก์เดียวใช้ได้ทุก RM)
+const teams = Object.entries(TENANTS).filter(([, t]) => !region || (t.region || "").toLowerCase() === region)
   .map(([id, t]) => { const app = initializeApp(t.firebaseConfig, "rm-" + id); return { id, t, name: t.amName || t.name.replace(/^AM Check-In\s*·?\s*/, "") || "ทีม " + ((t.aliases || [])[0] || id).toUpperCase(), auth: getAuth(app), db: getFirestore(app), ok: false, err: "" }; });
 
 const today = bkkDay();
@@ -23,12 +24,11 @@ let data = { people: [], days: [] };
 function screen(id) { ["scPick", "scLogin", "scDash"].forEach((s) => $(s).classList.toggle("hidden", s !== id)); $("btnOut").classList.toggle("hidden", id !== "scDash"); }
 
 async function init() {
-  if (!region) return screen("scPick");
-  $("rmTitle").textContent = `สรุปภาค ${regions.find((r) => r.toLowerCase() === region)} · ${teams.length} ทีม`;
+  setTitle();
   if (!teams.length) { screen("scLogin"); return msg("lgMsg", "ภาคนี้ยังไม่มีทีมในระบบ"); }
   await Promise.all(teams.map((x) => x.auth.authStateReady()));
   for (const x of teams) x.ok = !!x.auth.currentUser;
-  if (teams.some((x) => x.ok)) { await checkRoles(); if (teams.some((x) => x.ok)) { screen("scDash"); return load(); } }
+  if (teams.some((x) => x.ok)) { await checkRoles(); setTitle(); if (teams.some((x) => x.ok)) { screen("scDash"); return load(); } }
   screen("scLogin"); renderStatus();
 }
 async function checkRoles() {
@@ -40,7 +40,19 @@ async function checkRoles() {
     } catch (e) { x.ok = false; x.err = errText(e); }
   }));
 }
+let attempted = false;
+function setTitle() {
+  const ok = teams.filter((x) => x.ok), regs = [...new Set(ok.map((x) => x.t.region).filter(Boolean))];
+  $("rmTitle").textContent = region ? `สรุปภาค ${regions.find((r) => r.toLowerCase() === region)} · ${ok.length || teams.length} ทีม`
+    : ok.length ? `สรุป ${regs.join(" + ")} · ${ok.length} ทีม` : "สรุปการเข้า-ออกงาน";
+}
 function renderStatus() {
+  const ok = teams.filter((x) => x.ok), bad = teams.filter((x) => !x.ok);
+  if (!region) {
+    $("lgTeams").innerHTML = ok.map((x) => `<li><span>✅ ${esc(x.name)} <span class="muted">(${esc(x.id.toUpperCase())} · ${esc(x.t.region || "")})</span></span></li>`).join("")
+      + (attempted && bad.length ? `<li><details><summary class="muted">ทีมที่บัญชีนี้ยังเข้าไม่ได้ (${bad.length}) — ปกติถ้าไม่ใช่ภาคของคุณ · กดเพื่อส่งอีเมลตั้งรหัส</summary>${bad.map((x) => `<div class="row" style="justify-content:space-between;align-items:center;margin:4px 0"><span>${esc(x.name)} <span class="muted">(${esc(x.id.toUpperCase())} · ${esc(x.t.region || "")})</span></span><button class="btn sm" data-reset="${x.id}" style="width:auto;flex:0 0 auto">ส่งอีเมลตั้งรหัสผ่าน</button></div>`).join("")}</details></li>` : "");
+    return;
+  }
   $("lgTeams").innerHTML = teams.map((x) => `<li><span>${x.ok ? "✅" : "⬜️"} ${esc(x.name)} <span class="muted">(${esc(x.id.toUpperCase())})</span></span>
     ${x.ok ? "" : `<span class="muted">${esc(x.err || "")}</span> <button class="btn sm" data-reset="${x.id}">ส่งอีเมลตั้งรหัสผ่าน</button>`}</li>`).join("");
 }
@@ -60,6 +72,7 @@ $("btnLogin").onclick = async () => {
     catch (e) { x.ok = false; x.err = e.code === "auth/invalid-credential" || e.code === "auth/user-not-found" ? "ยังไม่มีบัญชี หรือรหัสผ่านไม่ตรง" : errText(e); }
   }));
   await checkRoles();
+  attempted = true; setTitle();
   busy($("btnLogin"), false);
   renderStatus();
   if (teams.some((x) => x.ok)) { msg("lgMsg", ""); screen("scDash"); load(); }
@@ -130,9 +143,9 @@ async function load() {
   msg("dMsg", "", "ok");
   const res = await Promise.all(teams.filter((x) => x.ok).map((x) => teamData(x, month, fromDay, toDay).catch((e) => ({ err: `${x.name}: ${errText(e)}`, people: [], days: [] }))));
   data = { people: res.flatMap((r) => r.people), days: res.flatMap((r) => r.days) };
-  const errs = res.filter((r) => r.err).map((r) => r.err), off = teams.filter((x) => !x.ok).map((x) => x.name);
+  const errs = res.filter((r) => r.err).map((r) => r.err), off = region ? teams.filter((x) => !x.ok).map((x) => x.name) : [];
   msg("dMsg", [errs.join(" · "), off.length ? `ยังไม่ได้ล็อกอิน: ${off.join(", ")}` : "", `ข้อมูล ${fromDay} ถึง ${toDay} · อัปเดต ${fmtTime(new Date())}`].filter(Boolean).join(" · "), errs.length ? "err" : "ok");
-  $("rmTeamF").innerHTML = `<option value="">ทุกทีม</option>` + teams.map((x) => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join("");
+  $("rmTeamF").innerHTML = `<option value="">ทุกทีม</option>` + teams.filter((x) => x.ok || region).map((x) => `<option value="${esc(x.name)}">${esc(x.name)}</option>`).join("");
   busy($("btnLoad"), false);
   render();
 }

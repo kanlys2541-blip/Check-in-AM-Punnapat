@@ -4,10 +4,15 @@
 // ============================================================
 import { TENANTS, DEFAULT_TENANT, GOOGLE_CLIENT_ID as GCID } from "./tenants.js";
 
+// ลำดับการเลือกทีม: ?am= ในลิงก์ → ทีมที่เครื่องนี้จำไว้ (หลังล็อกอินครั้งแรก) → ทีมเริ่มต้น
+// ลิงก์เดียวใช้ได้ทุกทีม: ถ้าล็อกอินแล้วไม่พบบัญชีในทีมนี้ ระบบจะค้นหาทีมที่ถูกต้องให้เอง (teamfinder.js)
+export const TEAM_KEY = "amci_team";
+const pick = (id) => (id ? (TENANTS[id] ? id : Object.keys(TENANTS).find((k) => (TENANTS[k].aliases || []).includes(id))) : "");
 const fromUrl = (new URLSearchParams(location.search).get("am") || "").trim().toLowerCase();
-const found = fromUrl ? (TENANTS[fromUrl] ? fromUrl : Object.keys(TENANTS).find((k) => (TENANTS[k].aliases || []).includes(fromUrl))) : DEFAULT_TENANT;
-export const TENANT_ID = found || fromUrl;
+let saved = ""; try { saved = localStorage.getItem(TEAM_KEY) || ""; } catch (e) {}
+export const TENANT_ID = fromUrl ? (pick(fromUrl) || fromUrl) : (pick(saved) || DEFAULT_TENANT);
 const T = TENANTS[TENANT_ID];
+if (T && fromUrl) { try { localStorage.setItem(TEAM_KEY, TENANT_ID); } catch (e) {} }
 
 if (!T) {
   document.addEventListener("DOMContentLoaded", () => {
@@ -17,9 +22,9 @@ if (!T) {
 }
 
 // ต่อท้ายลิงก์ภายในระบบ เช่น admin.html + TENANT_QS
-export const TENANT_QS = TENANT_ID === DEFAULT_TENANT ? "" : `?am=${fromUrl || TENANT_ID}`;
+export const TENANT_QS = fromUrl && TENANT_ID !== DEFAULT_TENANT ? `?am=${fromUrl}` : "";
 
-// AM อื่น: ปิด manifest เพื่อให้ "เพิ่มไปยังหน้าจอโฮม" จำลิงก์ที่มี ?am= ไว้ (ไม่งั้นไอคอนจะเปิดเขตเริ่มต้น)
+// เปิดจากลิงก์ที่มี ?am=: ปิด manifest เพื่อให้ "เพิ่มไปยังหน้าจอโฮม" จำลิงก์นั้นไว้
 if (TENANT_QS) document.querySelectorAll('link[rel="manifest"]').forEach((l) => l.remove());
 
 export const firebaseConfig = T.firebaseConfig;

@@ -37,8 +37,8 @@
     <pre id="oRules">กำลังโหลด…</pre>
     <div class="row" style="max-width:220px"><button class="btn sm" data-copy="oRules">คัดลอก</button></div>
 
-    <h3>ค. ลิงก์ของ AM คนนี้</h3>
-    <p>พนักงาน: <code id="oStaff"></code><br>ผู้ดูแล: <code id="oAdmin"></code></p>
+    <h3>ค. ลิงก์ (ใช้ลิงก์กลางเดียวทั้งประเทศ — ระบบหาทีมจากบัญชีที่ล็อกอินเอง)</h3>
+    <p>พนักงาน: <code id="oStaff"></code><br>AM: <code id="oAdmin"></code><br><span class="muted">ลิงก์เฉพาะทีม (สำรอง): <code id="oDirect"></code></span></p>
 
     <h3>ง. เช็กลิสต์</h3>
     <ol>
@@ -98,8 +98,9 @@ ${keys.map((k) => `      ${k}: ${q(cfg[k])}`).join(",\n")}
     ? rulesTpl.replace(/function ownerEmail\(\) \{ return '[^']*'; \}/, `function ownerEmail() { return '${owner.replace(/'/g, "")}'; }`)
     : "โหลดไฟล์ firestore.rules ไม่ได้ — ตรวจว่าอัปโหลดไฟล์นี้ขึ้น GitHub แล้ว";
   const base = new URL("./", location.href).href;
-  $("oStaff").textContent = `${base}?am=${code}`;
-  $("oAdmin").textContent = `${base}admin.html?am=${code}`;
+  $("oStaff").textContent = base;
+  $("oAdmin").textContent = `${base}admin.html`;
+  $("oDirect").textContent = `${base}?am=${code}`;
   $("out").classList.remove("hidden");
   $("out").scrollIntoView({ behavior: "smooth" });
 };

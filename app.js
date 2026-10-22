@@ -1,6 +1,7 @@
 import { auth, db, $, haversine, fmtDist, getDeviceId, isMobile, isInAppBrowser, bkkDay, fmtTime, fmtDateLong, GESTURES, errText, esc, busy,
   normCode, shiftInfo, shiftLabel, displayCode, shiftWindow, mergeDays, deviceInfo, LATE_GRACE_MIN, SHIFT_CHOICES } from "./common.js";
 import { TENANT_QS, TENANT_REGION } from "./firebase-config.js";
+import { findTeam, goTeam, resetAllTeams, teamKnown } from "./teamfinder.js";
 document.querySelectorAll('a[href="admin.html"]').forEach((a) => (a.href = "admin.html" + TENANT_QS));
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -45,7 +46,7 @@ async function onUser(user) {
     profile = snap.data();
     if (profile.active === false) return blocked("บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อหัวหน้า");
     if (profile.mustChangePassword) { screen("scChangePw"); return; }
-    if (profile.role === "viewer") { location.href = "rm.html" + (TENANT_REGION ? "?rm=" + TENANT_REGION.toLowerCase() : ""); return; }
+    if (profile.role === "viewer") { location.href = "rm.html"; return; }
     if (isAdminRole()) { if (new URLSearchParams(location.search).has("demo")) return enterDemo(); screen("scAdmin"); return; }
     await checkDevice();
   } catch (e) { blocked(errText(e)); }
@@ -69,14 +70,21 @@ $("btnLogin").onclick = async () => {
   if (!email || !pw) return msg("liMsg", "กรุณากรอกอีเมลและรหัสผ่าน");
   busy($("btnLogin"), true);
   try { await signInWithEmailAndPassword(auth, email, pw); msg("liMsg", ""); }
-  catch (e) { msg("liMsg", errText(e)); }
+  catch (e) {
+    if (["auth/invalid-credential", "auth/user-not-found", "auth/wrong-password"].includes(e.code)) {
+      msg("liMsg", "กำลังค้นหาทีมของคุณ...", "ok");
+      const id = await findTeam(email, pw);
+      if (id) { msg("liMsg", "พบบัญชีแล้ว กำลังเข้าสู่ระบบ...", "ok"); return goTeam(id); }
+    }
+    msg("liMsg", errText(e));
+  }
   finally { busy($("btnLogin"), false); }
 };
 $("liPw").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
 $("btnForgot").onclick = async () => {
   const email = $("liEmail").value.trim();
   if (!email) return msg("liMsg", "กรอกอีเมลของคุณในช่องด้านบนก่อน แล้วกด \"ลืมรหัสผ่าน\" อีกครั้ง");
-  try { await sendPasswordResetEmail(auth, email); msg("liMsg", "ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว (ตรวจในกล่อง Junk/Spam ด้วย)", "ok"); }
+  try { if (teamKnown()) await sendPasswordResetEmail(auth, email); else await Promise.allSettled([sendPasswordResetEmail(auth, email), resetAllTeams(email)]); msg("liMsg", "ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว (ตรวจในกล่อง Junk/Spam ด้วย)", "ok"); }
   catch (e) { msg("liMsg", errText(e)); }
 };
 $("btnLogout").onclick = () => { stopAll(); DEMO = false; $("demoBar").classList.add("hidden"); signOut(auth); };
